@@ -284,6 +284,8 @@ class Stabilizer
   SimpleZMPDistributor* szd;
   // TPCC
   double k_tpcc_p[2], k_tpcc_x[2], d_rpy[2], k_brot_p[2], k_brot_tc[2];
+  double d_drpy[2];
+  double d_ddrpy[2];
   // RUN ST
   TwoDofController m_tau_x[2], m_tau_y[2], m_f_z;
   hrp::Vector3 pdr;
@@ -299,6 +301,12 @@ class Stabilizer
   double total_mass, transition_time, cop_check_margin, contact_decision_threshold;
   std::vector<double> cp_check_margin, tilt_margin;
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
+  // FLYWHEEL ST
+  bool is_flywheel_st_on[2];
+  bool is_flywheel_recovery_on[2];
+  double flywheel_st_time[2];
+  double flywheel_st_time_limit[2];
+  hrp::Vector3 flywheel_compensation_moment;
 };
 
 

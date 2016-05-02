@@ -878,6 +878,44 @@ void Stabilizer::getActualParameters ()
 
     // foor modif
     if (control_mode == MODE_ST) {
+      // upper Body Control ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      // Update parameter
+      hrp::Matrix33 Iw;
+      hrp::Matrix33 Ir;
+      hrp::Matrix33 Il;
+      m_robot->calcForwardKinematics(true);
+      m_robot->calcCM();
+      m_robot->rootLink()->calcSubMassCM();
+      m_robot->rootLink()->calcSubMassInertia(Iw);
+      // std::cerr << "Modif Moment" <<std::endl;
+      // std::cerr << (ref_moment[0]+ref_moment[1]).transpose() << std::endl;
+      for (size_t i = 0; i < 2; i++) {
+          if (is_flywheel_st_on[i]) {
+              d_ddrpy[i] = flywheel_compensation_moment[i];
+              flywheel_st_time[i] += dt;
+              if (flywheel_st_time[i] > flywheel_st_time_limit[i] || abs((ref_moment[0]+ref_moment[1])[i]) < 30) {
+                  is_flywheel_st_on[i] = false;
+                  is_flywheel_recovery_on[i] = true;
+              }
+              std::cerr << "FLYWHEEL ST ON: " << i <<std::endl;
+          } else if (is_flywheel_recovery_on[i]) {
+              d_ddrpy[i] = -flywheel_compensation_moment[i];
+              flywheel_st_time[i] -= dt;
+              if (flywheel_st_time[i] <= 0.0) is_flywheel_recovery_on[i] = false;
+              std::cerr << "FLYWHEEL RECOVERY ON: " << i << std::endl;
+          } else {
+              if (abs((ref_moment[0]+ref_moment[1])[i]) > 60.0) {
+                  std::cerr << Iw.inverse() * (ref_moment[0]+ref_moment[1]) << std::endl;
+                  flywheel_compensation_moment[i] = -10.0 * ( Iw.inverse() * (ref_moment[0] + ref_moment[1]))[i];
+                  is_flywheel_st_on[i] = true;
+                  flywheel_st_time[i] = 0.0;
+                  flywheel_st_time_limit[i] = sqrt(2.0*(45 - d_drpy[i]) / flywheel_compensation_moment[i]);
+              }
+              flywheel_compensation_moment = hrp::Vector3::Zero();
+              std::cerr << "FLYWHEEL ST OFF: " << i << std::endl;
+          }
+      }
+      /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       hrp::Vector3 f_diff(hrp::Vector3::Zero());
       // moment control
       for (size_t i = 0; i < stikp.size(); i++) {
@@ -1270,7 +1308,14 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
     for (size_t i = 0; i < 2; i++) {
-        d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
+        std::cerr << "d_rpy" << i << std::endl;
+        std::cerr << d_rpy[i] << std::endl;
+        if ( is_flywheel_st_on[i] || is_flywheel_recovery_on[i] ){
+            d_drpy[i] += d_ddrpy[i] * dt;
+        } else {
+            d_drpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
+        }
+        d_rpy[i] =  d_drpy[i] * dt + d_rpy[i];
     }
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
     m_robot->rootLink()->R = current_root_R;
@@ -1547,6 +1592,10 @@ void Stabilizer::sync_2_st ()
   pangx_ref = pangy_ref = pangx = pangy = 0;
   rdx = rdy = rx = ry = 0;
   d_rpy[0] = d_rpy[1] = 0;
+  d_drpy[0] = d_drpy[1] = 0;
+  d_ddrpy[0] = d_ddrpy[1] = 0;
+  is_flywheel_st_on[0] = is_flywheel_st_on[1] = false;
+  is_flywheel_recovery_on[0] = is_flywheel_recovery_on[1] = false;
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
   for (size_t i = 0; i < stikp.size(); i++) {
