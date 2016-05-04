@@ -881,39 +881,49 @@ void Stabilizer::getActualParameters ()
       // upper Body Control ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
       // Update parameter
       hrp::Matrix33 Iw;
-      hrp::Matrix33 Ir;
-      hrp::Matrix33 Il;
+      double thetaMax[2];
+      thetaMax[0] = 20;
+      thetaMax[1] = 20;
       m_robot->calcForwardKinematics(true);
       m_robot->calcCM();
       m_robot->rootLink()->calcSubMassCM();
       m_robot->rootLink()->calcSubMassInertia(Iw);
-      // std::cerr << "Modif Moment" <<std::endl;
-      // std::cerr << (ref_moment[0]+ref_moment[1]).transpose() << std::endl;
       for (size_t i = 0; i < 2; i++) {
-          if (is_flywheel_st_on[i]) {
-              d_ddrpy[i] = flywheel_compensation_moment[i];
-              flywheel_st_time[i] += dt;
-              if (flywheel_st_time[i] > flywheel_st_time_limit[i] || abs((ref_moment[0]+ref_moment[1])[i]) < 30) {
+          if (is_flywheel_st_on[i]) { // FLYWHEEL ST
+              if (flywheel_st_time[i] >= flywheel_st_time_limit[i] || abs((ref_moment[0]+ref_moment[1])[i]) < 10) { //ST -> RECOVERY
                   is_flywheel_st_on[i] = false;
                   is_flywheel_recovery_on[i] = true;
+                  flywheel_st_time[i] = 0;
+                  flywheel_st_time_limit[i] = sqrt((thetaMax[i] - abs(d_rpy[i])) / flywheel_compensation_moment[i]);
+              } else { // ST ON
+                  if ( (Iw.inverse() * (ref_moment[0] + ref_moment[1]))[i] / flywheel_compensation_moment[i] > 2.0){
+                      flywheel_st_time[i] = 0;
+                      flywheel_st_time_limit[i] = sqrt((thetaMax[i] - abs(d_rpy[i])) / flywheel_compensation_moment[i]) - d_drpy[i] / flywheel_compensation_moment[i];
+                      flywheel_compensation_moment[i] = -0.5 * (Iw.inverse() * (ref_moment[0] + ref_moment[1]))[i];
+                  }
+                  d_ddrpy[i] = flywheel_compensation_moment[i];
+                  flywheel_st_time[i] += dt;
               }
               std::cerr << "FLYWHEEL ST ON: " << i <<std::endl;
-          } else if (is_flywheel_recovery_on[i]) {
+          } else if (is_flywheel_recovery_on[i]) { // FLYWHEEL RECOVERY
               d_ddrpy[i] = -flywheel_compensation_moment[i];
-              flywheel_st_time[i] -= dt;
-              if (flywheel_st_time[i] <= 0.0) is_flywheel_recovery_on[i] = false;
+              flywheel_st_time[i] += dt;
+              if (flywheel_st_time[i] < flywheel_st_time_limit[i] ) is_flywheel_recovery_on[i] = false; // RECOVERY -> STOP
               std::cerr << "FLYWHEEL RECOVERY ON: " << i << std::endl;
-          } else {
-              if (abs((ref_moment[0]+ref_moment[1])[i]) > 60.0) {
-                  std::cerr << Iw.inverse() * (ref_moment[0]+ref_moment[1]) << std::endl;
-                  flywheel_compensation_moment[i] = -10.0 * ( Iw.inverse() * (ref_moment[0] + ref_moment[1]))[i];
+          } else { // FLYWHEEL STOP
+              flywheel_compensation_moment = hrp::Vector3::Zero();
+              is_flywheel_st_on[i] = false;
+              is_flywheel_recovery_on[i] = false;
+              if (abs((ref_moment[0]+ref_moment[1])[i]) > 80.0 && abs(d_rpy[i]) < thetaMax[i]) {
                   is_flywheel_st_on[i] = true;
                   flywheel_st_time[i] = 0.0;
-                  flywheel_st_time_limit[i] = sqrt(2.0*(45 - d_drpy[i]) / flywheel_compensation_moment[i]);
+                  flywheel_st_time_limit[i] = sqrt((thetaMax[i] - abs(d_rpy[i])) / flywheel_compensation_moment[i]) - d_drpy[i] / flywheel_compensation_moment[i];
+                  flywheel_compensation_moment[i] = -0.5 * (Iw.inverse() * (ref_moment[0] + ref_moment[1]))[i];
               }
-              flywheel_compensation_moment = hrp::Vector3::Zero();
               std::cerr << "FLYWHEEL ST OFF: " << i << std::endl;
           }
+          ref_moment[0][i] -= ref_moment[0][i] / (ref_moment[0][i]+ref_moment[1][i]) * flywheel_compensation_moment[i];
+          ref_moment[1][i] -= ref_moment[1][i] / (ref_moment[0][i]+ref_moment[1][i]) * flywheel_compensation_moment[i];
       }
       /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       hrp::Vector3 f_diff(hrp::Vector3::Zero());
