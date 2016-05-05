@@ -285,6 +285,7 @@ class Stabilizer
   // TPCC
   double k_tpcc_p[2], k_tpcc_x[2], d_rpy[2], k_brot_p[2], k_brot_tc[2];
   double d_drpy[2];
+  double d_drpy0[2];
   double d_ddrpy[2];
   // RUN ST
   TwoDofController m_tau_x[2], m_tau_y[2], m_f_z;
@@ -307,6 +308,7 @@ class Stabilizer
   double flywheel_st_time[2];
   double flywheel_st_time_limit[2];
   hrp::Vector3 flywheel_compensation_moment;
+  hrp::Vector3 flywheel_ddot;
 };
 
 
