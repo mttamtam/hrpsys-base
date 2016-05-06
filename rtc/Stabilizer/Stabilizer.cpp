@@ -884,12 +884,19 @@ void Stabilizer::getActualParameters ()
       double thetaMax[2];
       double tauMax[2];
       double J[2];
-      thetaMax[0] = 0;
-      thetaMax[1] = 20;
-      tauMax[0] = 1.0;
-      tauMax[1] = 1.0;
+      double flywheel_moment_thre[2];
+      m_robot->calcForwardKinematics(true);
+      m_robot->calcCM();
+      m_robot->rootLink()->calcSubMassCM();
+      m_robot->rootLink()->calcSubMassInertia(Iw);
+      thetaMax[0] = M_PI/180*1;
+      thetaMax[1] = M_PI/180*20;;
+      tauMax[0] = 2.0;
+      tauMax[1] = 2.0;
       J[0] = 10.0;
       J[1] = 10.0;
+      flywheel_moment_thre[0] = flywheel_moment_thre[1] = 80;
+      if (!contact_states[contact_states_index_map["rleg"]] || !contact_states[contact_states_index_map["lleg"]]) flywheel_moment_thre[0] = 40;
       for (size_t i = 0; i < 2; i++) {
           flywheel_st_time[i] += dt;
           if (is_flywheel_st_on[i]) { // FLYWHEEL ST
@@ -912,15 +919,16 @@ void Stabilizer::getActualParameters ()
           } else { // FLYWHEEL STOP
               std::cerr << "FLYWHEEL ST OFF: " << i << std::endl;
               flywheel_st_time[i] = 0.0;
-              if (fabs((ref_moment[0]+ref_moment[1])[i]) > 80.0 && fabs(d_rpy[i]) < 0.1*thetaMax[i]) { // STOP -> ST
+              if (fabs((ref_moment[0]+ref_moment[1])[i]) > flywheel_moment_thre[i] && fabs(d_rpy[i]) < 0.1*thetaMax[i]) { // STOP -> ST
                   is_flywheel_st_on[i] = true;
                   flywheel_st_time[i] = 0.0;
                   d_drpy0[i] = d_drpy[i];
-                  flywheel_compensation_moment[i] = 0.5*(ref_moment[0] + ref_moment[1])[i];
-                  if (fabs(flywheel_compensation_moment[i]) > tauMax[i]) flywheel_compensation_moment[i] = ((flywheel_compensation_moment[i] > 0) - (flywheel_compensation_moment[i] < 0)) * tauMax[i];
-                  flywheel_ddot[i] = - flywheel_compensation_moment[i] / J[i];
-                  // flywheel_st_time_limit[i] = (-2.0*fabs(d_drpy[i])+sqrt(2.0*pow(d_drpy[i],2)+4.0*fabs(flywheel_ddot[i])*(thetaMax[i]-fabs(d_rpy[i]))))/(2.0*fabs(flywheel_ddot[i]));
-                  flywheel_st_time_limit[i] = sqrt(4.0/fabs(flywheel_ddot[i])*(thetaMax[i] - fabs(d_rpy[i])));
+                  flywheel_compensation_moment[i] = (ref_moment[0] + ref_moment[1])[i];
+                  // if (fabs(flywheel_compensation_moment[i]) > tauMax[i]) flywheel_compensation_moment[i] = ((flywheel_compensation_moment[i] > 0) - (flywheel_compensation_moment[i] < 0)) * tauMax[i];
+                  // flywheel_ddot[i] = - flywheel_compensation_moment[i] / J[i];
+                  flywheel_ddot[i] = - (Iw.inverse() * flywheel_compensation_moment)[i];
+                  flywheel_st_time_limit[i] = (-2.0*fabs(d_drpy[i])+sqrt(2.0*pow(d_drpy[i],2)+4.0*fabs(flywheel_ddot[i])*(thetaMax[i]-fabs(d_rpy[i]))))/(2.0*fabs(flywheel_ddot[i]));
+                  // flywheel_st_time_limit[i] = sqrt(4.0/fabs(flywheel_ddot[i])*(thetaMax[i] - fabs(d_rpy[i])));
               }
           }
           d_ddrpy[i] = flywheel_ddot[i];
