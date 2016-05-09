@@ -309,6 +309,7 @@ class Stabilizer
   bool is_flywheel_recovery_on[2];
   double flywheel_st_time[2];
   double flywheel_st_time_limit[2];
+  double flywheel_angle_limit[2];
   hrp::Vector3 flywheel_compensation_moment;
   hrp::Vector3 flywheel_ddot;
 };

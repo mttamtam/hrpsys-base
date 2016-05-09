@@ -208,6 +208,8 @@ module OpenHRP
       sequence<IKLimbParameters> ik_limb_parameters;
       /// Use flywheel Stabilizer
       boolean use_flywheel_st;
+      /// flywheel angle limit [degree]
+      DblArray2 flywheel_angle_limit;
     };
 
     /**

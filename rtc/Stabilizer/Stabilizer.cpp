@@ -368,6 +368,11 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   rdx = rdy = rx = ry = 0;
   pdr = hrp::Vector3::Zero();
 
+  // parameters for flywheelST
+  use_flywheel_st = false;
+  flywheel_angle_limit[0] = 5.0;
+  flywheel_angle_limit[1] = 20.0;
+
   // Check is legged robot or not
   is_legged_robot = false;
   for (size_t i = 0; i < stikp.size(); i++) {
@@ -1310,8 +1315,8 @@ void Stabilizer::useFlywheelRotation (std::vector<hrp::Vector3>& ref_moment)
     m_robot->calcCM();
     m_robot->rootLink()->calcSubMassCM();
     m_robot->rootLink()->calcSubMassInertia(Iw);
-    thetaMax[0] = M_PI/180*1.0;
-    thetaMax[1] = M_PI/180*20.0;;
+    thetaMax[0] = M_PI/180*flywheel_angle_limit[0];
+    thetaMax[1] = M_PI/180*flywheel_angle_limit[1];
     tauMax[0] = 1.0;
     tauMax[1] = 10.0;
     flywheel_moment_thre[0] = std::min(szd->get_leg_inside_margin() * eefm_gravitational_acceleration * total_mass, szd->get_leg_outside_margin() * eefm_gravitational_acceleration * total_mass);
@@ -1832,6 +1837,9 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
   }
   i_stp.ik_limb_parameters.length(jpe_v.size());
   i_stp.use_flywheel_st = use_flywheel_st;
+  for (size_t i = 0; i < 2; i++) {
+      i_stp.flywheel_angle_limit[i] = flywheel_angle_limit[i];
+  }
   for (size_t i = 0; i < jpe_v.size(); i++) {
       OpenHRP::StabilizerService::IKLimbParameters& ilp = i_stp.ik_limb_parameters[i];
       ilp.ik_optional_weight_vector.length(jpe_v[i]->numJoints());
@@ -1974,6 +1982,9 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
   contact_decision_threshold = i_stp.contact_decision_threshold;
   is_estop_while_walking = i_stp.is_estop_while_walking;
   use_flywheel_st = i_stp.use_flywheel_st;
+  for (size_t i = 0; i < 2; i++) {
+    flywheel_angle_limit[i] = i_stp.flywheel_angle_limit[i];
+  }
   if (control_mode == MODE_IDLE) {
       for (size_t i = 0; i < i_stp.end_effector_list.length(); i++) {
           std::vector<STIKParam>::iterator it = std::find_if(stikp.begin(), stikp.end(), (&boost::lambda::_1->* &std::vector<STIKParam>::value_type::ee_name == std::string(i_stp.end_effector_list[i].leg)));
