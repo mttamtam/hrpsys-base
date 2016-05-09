@@ -113,6 +113,7 @@ class Stabilizer
   void calcStateForEmergencySignal();
   void calcRUNST();
   void moveBasePosRotForBodyRPYControl ();
+  void useFlywheelRotation (std::vector<hrp::Vector3>& ref_moment);
   void calcSwingSupportLimbGain();
   void calcTPCC();
   void calcEEForceMomentControl();
@@ -303,6 +304,7 @@ class Stabilizer
   std::vector<double> cp_check_margin, tilt_margin;
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
   // FLYWHEEL ST
+  bool use_flywheel_st;
   bool is_flywheel_st_on[2];
   bool is_flywheel_recovery_on[2];
   double flywheel_st_time[2];
