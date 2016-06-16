@@ -126,9 +126,15 @@ public:
       }
       // check whether p is inside support polygon
       for (size_t i = 0; i < convex_vertices.size() - 1; i++) {
-        if (calcCrossProduct(p, convex_vertices[i + 1], convex_vertices[i]) < 0) return false;
+        if (calcCrossProduct(p, convex_vertices[i + 1], convex_vertices[i]) < 0) {
+          p = calcInnerProduct(p, convex_vertices[i + 1], convex_vertices[i]) * (convex_vertices[i+1] - convex_vertices[i]).normalized() + convex_vertices[i];
+          return false;
+        }
       }
-      if (calcCrossProduct(p, convex_vertices.front(), convex_vertices.back()) < 0) return false;
+      if (calcCrossProduct(p, convex_vertices.front(), convex_vertices.back()) < 0) {
+        p = calcInnerProduct(p, convex_vertices.front(), convex_vertices.back()) * (convex_vertices.front() - convex_vertices.back()).normalized() + convex_vertices.back();
+        return false;
+      }
       return true;
     };
     void print_params (const std::string& str)
@@ -867,6 +873,11 @@ public:
   {
     return (a(0) - o(0)) * (b(1) - o(1)) - (a(1) - o(1)) * (b(0) - o(0));
   };
+  double calcInnerProduct(Eigen::Vector2d& a, Eigen::Vector2d& b, Eigen::Vector2d& o)
+  {
+    return (a(0) - o(0)) * (b(0) - o(0)) + (a(1) - o(1)) * (b(1) - o(1));
+  };
+
 
   // assume that vertices are listed in clockwise order
   std::vector<Eigen::Vector2d> calcConvexHull(std::vector<Eigen::Vector2d> vertices)
