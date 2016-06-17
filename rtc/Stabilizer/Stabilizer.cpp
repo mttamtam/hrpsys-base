@@ -792,6 +792,7 @@ void Stabilizer::getActualParameters ()
     for (size_t i = 0; i < 2; i++) {
       new_refzmp(i) += eefm_k1[i] * transition_smooth_gain * dcog(i) + eefm_k2[i] * transition_smooth_gain * dcogvel(i) + eefm_k3[i] * transition_smooth_gain * dzmp(i) + ref_zmp_aux(i);
     }
+
     if (DEBUGP) {
       // All state variables are foot_origin coords relative
       std::cerr << "[" << m_profile.instance_name << "] state values" << std::endl;
@@ -833,6 +834,18 @@ void Stabilizer::getActualParameters ()
           rel_ee_rot.push_back(foot_origin_rot.transpose() * ee_rot.back());
           rel_ee_name.push_back(ee_name.back());
       }
+      //for saturation of new ref zmp
+      Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
+      SimpleZMPDistributor::leg_type support_leg;
+      bool use_flywheel_st(false);
+      if (isContact(contact_states_index_map["rleg"]) && isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::BOTH;
+      else if (isContact(contact_states_index_map["rleg"])) support_leg = SimpleZMPDistributor::RLEG;
+      else if (isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::LLEG;
+      std::vector<double> new_refzmp_check_margin(4,0.0);
+      if (!szd->is_inside_support_polygon(tmp_new_refzmp, ee_pos, ee_rot, ee_name, support_leg, new_refzmp_check_margin)){
+        new_refzmp.head(2) = tmp_new_refzmp;
+      }
+
       //for ABC ref force
       if ( ref_force[0](2) + ref_force[1](2) == 0 ) ref_force[0](2) = ref_force[1](2) = eefm_gravitational_acceleration * total_mass / 2.0;
 
