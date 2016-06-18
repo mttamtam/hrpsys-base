@@ -837,13 +837,18 @@ void Stabilizer::getActualParameters ()
       //for saturation of new ref zmp
       Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
       SimpleZMPDistributor::leg_type support_leg;
-      bool use_flywheel_st(false);
       if (isContact(contact_states_index_map["rleg"]) && isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::BOTH;
       else if (isContact(contact_states_index_map["rleg"])) support_leg = SimpleZMPDistributor::RLEG;
       else if (isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::LLEG;
       std::vector<double> new_refzmp_check_margin(4,0.0);
       if (!szd->is_inside_support_polygon(tmp_new_refzmp, ee_pos, ee_rot, ee_name, support_leg, new_refzmp_check_margin)){
+        use_flywheel_st = true;
+        hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
+        new_refzmp_comp.head(2) = tmp_new_refzmp - new_refzmp.head(2);
+        new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(new_refzmp_comp(1), new_refzmp_comp(0), 0);
         new_refzmp.head(2) = tmp_new_refzmp;
+      } else {
+        use_flywheel_st = false;
       }
 
       //for ABC ref force
@@ -1282,10 +1287,22 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     // Body rpy control
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
+    hrp::Vector3 d_rpy_flywheel = hrp::Vector3::Zero();
+    if (use_flywheel_st) {
+      hrp::Matrix33 I;
+      hrp::Vector3 angular_momentum_comp;
+      m_robot->calcForwardKinematics(true);
+      m_robot->calcCM();
+      m_robot->rootLink()->calcSubMassCM();
+      m_robot->rootLink()->calcSubMassInertia(I);
+      angular_momentum_comp = I * hrp::Vector3(d_rpy[0], d_rpy[1], 0) + new_refzmp_comp_moment * dt;
+      d_rpy_flywheel = I.inverse() * angular_momentum_comp;
+    }
     for (size_t i = 0; i < 2; i++) {
         d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
     }
-    rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
+    if (use_flywheel_st) rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
+    else rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
     m_robot->rootLink()->R = current_root_R;
     m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
     m_robot->calcForwardKinematics();
@@ -1562,6 +1579,7 @@ void Stabilizer::sync_2_st ()
   d_rpy[0] = d_rpy[1] = 0;
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
+  use_flywheel_st = false;
   for (size_t i = 0; i < stikp.size(); i++) {
     target_ee_diff_p[i] = hrp::Vector3::Zero();
     target_ee_diff_r[i] = hrp::Vector3::Zero();

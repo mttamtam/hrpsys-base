@@ -299,6 +299,9 @@ class Stabilizer
   double total_mass, transition_time, cop_check_margin, contact_decision_threshold;
   std::vector<double> cp_check_margin, tilt_margin;
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
+  // FLYWHEEL ST
+  bool use_flywheel_st;
+  hrp::Vector3 new_refzmp_comp_moment;
 };
 
 
