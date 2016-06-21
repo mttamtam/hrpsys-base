@@ -301,7 +301,7 @@ class Stabilizer
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
   // FLYWHEEL ST
   bool flywheel_st_mode;
-  hrp::Vector3 rpy_limit;
+  Eigen::Vector4d rpy_limit;
   bool use_flywheel_st;
   hrp::Vector3 new_refzmp_comp_moment;
   hrp::Vector3 d_rpy_vel;

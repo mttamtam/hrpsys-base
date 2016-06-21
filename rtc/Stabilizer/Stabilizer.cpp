@@ -356,7 +356,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for FLYWHEELST
   flywheel_st_mode = false;
-  rpy_limit = hrp::Vector3(deg2rad(5),deg2rad(20),0);
+  rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-5), deg2rad(20));
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -845,12 +845,14 @@ void Stabilizer::getActualParameters ()
       if (isContact(contact_states_index_map["rleg"]) && isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::BOTH;
       else if (isContact(contact_states_index_map["rleg"])) support_leg = SimpleZMPDistributor::RLEG;
       else if (isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::LLEG;
-      std::vector<double> new_refzmp_check_margin(4,0.0);
-      if (!szd->is_inside_support_polygon(tmp_act_zmp, ee_pos, ee_rot, ee_name, support_leg, new_refzmp_check_margin) && flywheel_st_mode == true){
+      std::vector<double> zmp_check_margin(4,0.005);
+      if (!szd->is_inside_support_polygon(tmp_act_zmp, ee_pos, ee_rot, ee_name, support_leg, zmp_check_margin) && flywheel_st_mode == true){
         hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
+        hrp::Vector3 act_zmp_diff;
+        act_zmp_diff.head(2) = (act_zmp.head(2) - tmp_act_zmp);
         use_flywheel_st = true;
-        new_refzmp_comp = new_refzmp - ref_zmp;
-        new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(new_refzmp_comp(1), new_refzmp_comp(0), 0);
+        new_refzmp_comp.head(2) = (new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2)) * act_zmp_diff.head(2).normalized() / act_zmp_diff.head(2).norm();
+        new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
       } else {
         use_flywheel_st = false;
       }
@@ -1302,9 +1304,10 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       d_rpy_vel_comp = I.inverse() * ( new_refzmp_comp_moment * dt);
     }
     for (size_t i = 0; i < 2; i++) {
-      double ratio = (rpy_limit(i) - fabs(d_rpy[i]) ) / rpy_limit(i);
+      double j(d_rpy[i] > 0 ? 1.0 : 0.0);
+      double ratio = (rpy_limit(2*i+j) - d_rpy[i]) / rpy_limit(2*i+j);
       d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
-      if (use_flywheel_st && fabs(d_rpy[i]) < rpy_limit(i) ) d_rpy_vel(i) += d_rpy_vel_comp(i) * ratio;
+      if (use_flywheel_st && fabs(d_rpy[i]) < fabs(rpy_limit(2*i+j)) ) d_rpy_vel(i) += d_rpy_vel_comp(i) * ratio * 2.0;
       else d_rpy_vel(i) = d_rpy_vel_st(i);
       d_rpy[i] += d_rpy_vel(i) * dt;
     }
@@ -1425,6 +1428,7 @@ void Stabilizer::calcEEForceMomentControl() {
       std::vector<hrp::Vector3> tmpp_list; // modified ee Pos
       std::vector<hrp::Matrix33> tmpR_list; // modified ee Rot
 #define deg2rad(x) ((x) * M_PI / 180.0)
+#define rad2deg(x) ((x) / M_PI * 180.0)
       for (size_t i = 0; i < stikp.size(); i++) {
           hrp::Vector3 tmpp; // modified ee Pos
           hrp::Matrix33 tmpR; // modified ee Rot
@@ -1800,7 +1804,7 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
   }
   i_stp.flywheel_st_mode = flywheel_st_mode;
   for (size_t i = 0; i < rpy_limit.size(); i++){
-    i_stp.rpy_limit[i] = rpy_limit(i);
+      i_stp.rpy_limit[i] = rad2deg(rpy_limit(i));
   }
 };
 
@@ -2084,7 +2088,7 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
   }
   flywheel_st_mode = i_stp.flywheel_st_mode;
   for (size_t i = 0; i < rpy_limit.size(); i++){
-    rpy_limit(i) = i_stp.rpy_limit[i];
+    rpy_limit(i) = deg2rad(i_stp.rpy_limit[i]);
   }
 }
 
