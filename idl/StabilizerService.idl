@@ -206,6 +206,10 @@ module OpenHRP
       boolean is_estop_while_walking;
       /// Sequence for all end-effectors' ik limb parameters
       sequence<IKLimbParameters> ik_limb_parameters;
+      /// Flywheel ST mode
+      boolean flywheel_st_mode;
+      /// Flywheel rpy limit
+      DblArray3 rpy_limit;
     };
 
     /**

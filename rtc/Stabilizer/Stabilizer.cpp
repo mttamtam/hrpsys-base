@@ -354,6 +354,10 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   is_estop_while_walking = false;
   sbp_cog_offset = hrp::Vector3(0.0, 0.0, 0.0);
 
+  // parameters for FLYWHEELST
+  flywheel_st_mode = false;
+  rpy_limit = hrp::Vector3(deg2rad(5),deg2rad(20),0);
+
   // parameters for RUNST
   double ke = 0, tc = 0;
   for (int i = 0; i < 2; i++) {
@@ -836,17 +840,17 @@ void Stabilizer::getActualParameters ()
       }
       //for saturation of new ref zmp
       Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
+      Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
       SimpleZMPDistributor::leg_type support_leg;
       if (isContact(contact_states_index_map["rleg"]) && isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::BOTH;
       else if (isContact(contact_states_index_map["rleg"])) support_leg = SimpleZMPDistributor::RLEG;
       else if (isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::LLEG;
       std::vector<double> new_refzmp_check_margin(4,0.0);
-      if (!szd->is_inside_support_polygon(tmp_new_refzmp, ee_pos, ee_rot, ee_name, support_leg, new_refzmp_check_margin)){
-        use_flywheel_st = true;
+      if (!szd->is_inside_support_polygon(tmp_act_zmp, ee_pos, ee_rot, ee_name, support_leg, new_refzmp_check_margin) && flywheel_st_mode == true){
         hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
-        new_refzmp_comp.head(2) = tmp_new_refzmp - new_refzmp.head(2);
+        use_flywheel_st = true;
+        new_refzmp_comp = new_refzmp - ref_zmp;
         new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(new_refzmp_comp(1), new_refzmp_comp(0), 0);
-        new_refzmp.head(2) = tmp_new_refzmp;
       } else {
         use_flywheel_st = false;
       }
@@ -1287,22 +1291,24 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     // Body rpy control
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
-    hrp::Vector3 d_rpy_flywheel = hrp::Vector3::Zero();
+    hrp::Vector3 d_rpy_vel_comp = hrp::Vector3::Zero();
+    hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
     if (use_flywheel_st) {
       hrp::Matrix33 I;
-      hrp::Vector3 angular_momentum_comp;
       m_robot->calcForwardKinematics(true);
       m_robot->calcCM();
       m_robot->rootLink()->calcSubMassCM();
       m_robot->rootLink()->calcSubMassInertia(I);
-      angular_momentum_comp = I * hrp::Vector3(d_rpy[0], d_rpy[1], 0) + new_refzmp_comp_moment * dt;
-      d_rpy_flywheel = I.inverse() * angular_momentum_comp;
+      d_rpy_vel_comp = I.inverse() * ( new_refzmp_comp_moment * dt);
     }
     for (size_t i = 0; i < 2; i++) {
-        d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
+      double ratio = (rpy_limit(i) - fabs(d_rpy[i]) ) / rpy_limit(i);
+      d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
+      if (use_flywheel_st && fabs(d_rpy[i]) < rpy_limit(i) ) d_rpy_vel(i) += d_rpy_vel_comp(i) * ratio;
+      else d_rpy_vel(i) = d_rpy_vel_st(i);
+      d_rpy[i] += d_rpy_vel(i) * dt;
     }
-    if (use_flywheel_st) rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
-    else rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
+    rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
     m_robot->rootLink()->R = current_root_R;
     m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
     m_robot->calcForwardKinematics();
@@ -1792,6 +1798,10 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
       ilp.reference_gain = stikp[i].reference_gain;
       ilp.manipulability_limit = jpe_v[i]->getManipulabilityLimit();
   }
+  i_stp.flywheel_st_mode = flywheel_st_mode;
+  for (size_t i = 0; i < rpy_limit.size(); i++){
+    i_stp.rpy_limit[i] = rpy_limit(i);
+  }
 };
 
 void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
@@ -2071,6 +2081,10 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
           std::cerr << jpe_v[i]->getManipulabilityLimit() << ", ";
       }
       std::cerr << "]" << std::endl;
+  }
+  flywheel_st_mode = i_stp.flywheel_st_mode;
+  for (size_t i = 0; i < rpy_limit.size(); i++){
+    rpy_limit(i) = i_stp.rpy_limit[i];
   }
 }
 
