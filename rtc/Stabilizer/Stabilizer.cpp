@@ -356,7 +356,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for FLYWHEELST
   flywheel_st_mode = false;
-  rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-5), deg2rad(20));
+  rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(5));
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -1294,6 +1294,7 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
     hrp::Vector3 d_rpy_vel_comp = hrp::Vector3::Zero();
+    hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
     if (use_flywheel_st) {
       hrp::Matrix33 I;
@@ -1301,14 +1302,30 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       m_robot->calcCM();
       m_robot->rootLink()->calcSubMassCM();
       m_robot->rootLink()->calcSubMassInertia(I);
-      d_rpy_vel_comp = I.inverse() * ( new_refzmp_comp_moment * dt);
+      d_rpy_acc_comp = I.inverse() * new_refzmp_comp_moment;
+      std::cerr << "new refzmp comp moment" << std::endl;
+      std::cerr << new_refzmp_comp_moment.transpose() << std::endl;
+      for (size_t i = 0; i < 2; i++) {
+        if (d_rpy_acc_comp(i)!=0){
+            double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
+          T_r1(i) = std::sqrt(rpy_limit(2.0*i+j) - d_rpy[i]/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
+          // T_r2(i) = std::sqrt(4.0*(rpy_limit(i+j) - d_rpy[i])/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
+          std::cerr << "----------------------------------------------------" << std::endl;
+          std::cerr << "angle data : " << i << std::endl;
+          std::cerr << "rpy : " << d_rpy[i] << std::endl;
+          std::cerr << "rpy limit : " << rpy_limit(i+j) << std::endl;
+          std::cerr << "rpy vel : " << d_rpy_vel(i) << std::endl;
+          std::cerr << "rpy acc comp : " << d_rpy_acc_comp(i) << std::endl;
+          std::cerr << "time limit : " << T_r1(i) << std::endl;
+        }
+      }
     }
     for (size_t i = 0; i < 2; i++) {
-      double j(d_rpy[i] > 0 ? 1.0 : 0.0);
-      double ratio = (rpy_limit(2*i+j) - d_rpy[i]) / rpy_limit(2*i+j);
+      // rpy vel update
       d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
-      if (use_flywheel_st && fabs(d_rpy[i]) < fabs(rpy_limit(2*i+j)) ) d_rpy_vel(i) += d_rpy_vel_comp(i) * ratio * 2.0;
+      if (use_flywheel_st && T_r1(i) > dt && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
       else d_rpy_vel(i) = d_rpy_vel_st(i);
+      // rpy update
       d_rpy[i] += d_rpy_vel(i) * dt;
     }
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
