@@ -356,7 +356,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for FLYWHEELST
   flywheel_st_mode = false;
-  rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(5));
+  rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(20));
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -838,21 +838,23 @@ void Stabilizer::getActualParameters ()
           rel_ee_rot.push_back(foot_origin_rot.transpose() * ee_rot.back());
           rel_ee_name.push_back(ee_name.back());
       }
-      //for saturation of new ref zmp
+
+      //for compensation of new ref zmp
       Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
       Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
       SimpleZMPDistributor::leg_type support_leg;
       if (isContact(contact_states_index_map["rleg"]) && isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::BOTH;
       else if (isContact(contact_states_index_map["rleg"])) support_leg = SimpleZMPDistributor::RLEG;
       else if (isContact(contact_states_index_map["lleg"])) support_leg = SimpleZMPDistributor::LLEG;
-      std::vector<double> zmp_check_margin(4,0.005);
-      if (!szd->is_inside_support_polygon(tmp_act_zmp, ee_pos, ee_rot, ee_name, support_leg, zmp_check_margin) && flywheel_st_mode == true){
+      std::vector<double> zmp_check_margin(4,0.01);
+      if (!szd->is_inside_support_polygon(tmp_act_zmp, ee_pos, ee_rot, ee_name, support_leg, zmp_check_margin) && flywheel_st_mode){
         hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
-        hrp::Vector3 act_zmp_diff;
+        hrp::Vector3 act_zmp_diff = hrp::Vector3::Zero();
         act_zmp_diff.head(2) = (act_zmp.head(2) - tmp_act_zmp);
         use_flywheel_st = true;
-        new_refzmp_comp.head(2) = (new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2)) * act_zmp_diff.head(2).normalized() / act_zmp_diff.head(2).norm();
+        new_refzmp_comp.head(2) = std::fabs((new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2))) / act_zmp_diff.head(2).norm() * act_zmp_diff.head(2).normalized();
         new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
+        vlimit(new_refzmp_comp_moment, -300, 300);
       } else {
         use_flywheel_st = false;
       }
@@ -1290,33 +1292,45 @@ void Stabilizer::calcStateForEmergencySignal()
 
 void Stabilizer::moveBasePosRotForBodyRPYControl ()
 {
+    // Chest rpy control
+    // std::vector<size_t> chestLinkId;
+    // std::vector<hrp::Link*> chestJoint;
+    // chestLinkId.push_back(m_robot->rootLink()->child->jointId);
+    // chestLinkId.push_back(m_robot->rootLink()->child->child->jointId);
+    // chestJoint.push_back(m_robot->joint(chestLinkId[0]));
+    // chestJoint.push_back(m_robot->joint(chestLinkId[1]));
+    // static const hrp::Vector3 ref_chest_rpy = hrp::Vector3(chestJoint[0]->q, chestJoint[1]->q,0);
+    // static const Eigen::Vector4d chest_rpy_limit = Eigen::Vector4d(chestJoint[0]->llimit,chestJoint[1]->ulimit,chestJoint[1]->llimit,chestJoint[1]->ulimit) * 0.1;
     // Body rpy control
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
-    hrp::Vector3 d_rpy_vel_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
+    double chest_pitch_acc_comp = 0;
     if (use_flywheel_st) {
       hrp::Matrix33 I;
       m_robot->calcForwardKinematics(true);
       m_robot->calcCM();
       m_robot->rootLink()->calcSubMassCM();
       m_robot->rootLink()->calcSubMassInertia(I);
+      // hrp::Matrix33 I_cr;
+      // hrp::Matrix33 I_cp;
+      // m_robot->rootLink()->child->calcSubMassInertia(I_cr);
+      // m_robot->rootLink()->child->child->calcSubMassInertia(I_cp);
       d_rpy_acc_comp = I.inverse() * new_refzmp_comp_moment;
-      std::cerr << "new refzmp comp moment" << std::endl;
-      std::cerr << new_refzmp_comp_moment.transpose() << std::endl;
       for (size_t i = 0; i < 2; i++) {
         if (d_rpy_acc_comp(i)!=0){
-            double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
-          T_r1(i) = std::sqrt(rpy_limit(2.0*i+j) - d_rpy[i]/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
+          double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
+          T_r1(i) = std::sqrt((rpy_limit(2.0*i+j) - current_base_rpy[i])/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
           // T_r2(i) = std::sqrt(4.0*(rpy_limit(i+j) - d_rpy[i])/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
-          std::cerr << "----------------------------------------------------" << std::endl;
-          std::cerr << "angle data : " << i << std::endl;
-          std::cerr << "rpy : " << d_rpy[i] << std::endl;
-          std::cerr << "rpy limit : " << rpy_limit(i+j) << std::endl;
-          std::cerr << "rpy vel : " << d_rpy_vel(i) << std::endl;
-          std::cerr << "rpy acc comp : " << d_rpy_acc_comp(i) << std::endl;
-          std::cerr << "time limit : " << T_r1(i) << std::endl;
+          // if (T_r1(i) < dt) {
+          //   if (i==0) { // chest comp
+          //     chest_pitch_acc_comp = d_rpy_acc_comp(i) * 4.0;
+          //     T_r1_chest = std::sqrt((chest_rpy_limit(2.0*i+j) - chest_rpy[i])/chest_pitch_acc_comp) - chest_rpy_vel(i)/chest_pitch_acc_comp;
+          //     if (T_r1_chest < dt || !is_emergency) chest_pitch_acc_comp *= -1.0;
+          //   }
+          //   d_rpy_acc_comp(i) =0;
+          // }
         }
       }
     }
@@ -1334,6 +1348,12 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     m_robot->calcForwardKinematics();
     current_base_rpy = hrp::rpyFromRot(m_robot->rootLink()->R);
     current_base_pos = m_robot->rootLink()->p;
+    // chest RPY control
+    //// flywheel comp
+    // if (use_flywheel_st) chest_rpy_vel(0) += chest_pitch_acc_comp * dt;
+    // else chest_rpy_vel(0) = eefm_body_attitude_control_gain[0] * (ref_chest_rpy(0) - chest_rpy(0)) - 1/eefm_body_attitude_control_gain[0] * chest_rpy(0);
+    // chest_rpy(0) += chest_rpy_vel(0) * dt;
+    // chestJoint[0]->q = chest_rpy(0);
 };
 
 void Stabilizer::calcSwingSupportLimbGain ()
@@ -1432,6 +1452,7 @@ void Stabilizer::calcEEForceMomentControl() {
       }
 
       moveBasePosRotForBodyRPYControl ();
+
 
       // Convert d_foot_pos in foot origin frame => "current" world frame
       hrp::Vector3 foot_origin_pos;
@@ -1607,6 +1628,7 @@ void Stabilizer::sync_2_st ()
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
   use_flywheel_st = false;
+  chest_rpy_vel = hrp::Vector3::Zero();
   for (size_t i = 0; i < stikp.size(); i++) {
     target_ee_diff_p[i] = hrp::Vector3::Zero();
     target_ee_diff_r[i] = hrp::Vector3::Zero();

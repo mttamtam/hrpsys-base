@@ -307,6 +307,10 @@ class Stabilizer
   hrp::Vector3 d_rpy_vel;
   hrp::Vector3 T_r1,T_r2;
   hrp::Vector3 flywheel_count;
+  hrp::Vector3 chest_rpy;
+  hrp::Vector3 chest_rpy_vel;
+  hrp::Vector3 chest_rpy_acc;
+  double T_r1_chest;
 };
 
 
