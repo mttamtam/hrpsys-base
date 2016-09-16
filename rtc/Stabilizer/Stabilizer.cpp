@@ -844,7 +844,6 @@ void Stabilizer::getActualParameters ()
               ee_forcemoment_distribution_weight[i][j] = ikp.eefm_ee_forcemoment_distribution_weight[j];
           }
       }
-
       //for compensation of new ref zmp
       Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
       Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
@@ -864,9 +863,6 @@ void Stabilizer::getActualParameters ()
       } else {
         use_flywheel_st = false;
       }
-
-      //for ABC ref force
-      if ( ref_force[0](2) + ref_force[1](2) == 0 ) ref_force[0](2) = ref_force[1](2) = eefm_gravitational_acceleration * total_mass / 2.0;
 
       // All state variables are foot_origin coords relative
       if (DEBUGP) {
