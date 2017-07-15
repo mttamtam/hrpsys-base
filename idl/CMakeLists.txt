@@ -29,6 +29,7 @@ set(idl_files
   ReferenceForceUpdaterService.idl
   AccelerationFilterService.idl
   ObjectContactTurnaroundDetectorService.idl
+  ContactExplorerService.idl
   )
 
 set(openhrp_idl_files

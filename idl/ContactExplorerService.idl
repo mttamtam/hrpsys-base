@@ -1,0 +1,18 @@
+/**
+ * @file ContactExplorerService.idl
+ * @brief Services for the contactexplorer interface
+ */
+
+
+#ifndef __CONTACTEXPLORER_SERVICE_IDL__
+#define __CONTACTEXPLORER_SERVICE_IDL__
+
+module OpenHRP
+{
+  interface ContactExplorerService
+  {
+    void echo(in string msg);
+  };
+};
+
+#endif
