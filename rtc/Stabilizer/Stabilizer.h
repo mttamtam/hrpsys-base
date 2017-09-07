@@ -155,7 +155,7 @@ class Stabilizer
  protected:
   // Configuration variable declaration
   // <rtc-template block="config_declare">
-  
+
   // </rtc-template>
   RTC::TimedDoubleSeq m_qCurrent;
   RTC::TimedDoubleSeq m_qRef;
@@ -188,7 +188,7 @@ class Stabilizer
   RTC::TimedDoubleSeq m_allRefWrench;
   RTC::TimedDoubleSeq m_allEEComp;
   RTC::TimedDoubleSeq m_debugData;
-  
+
   // DataInPort declaration
   // <rtc-template block="inport_declare">
   RTC::InPort<RTC::TimedDoubleSeq> m_qCurrentIn;
@@ -209,7 +209,7 @@ class Stabilizer
   std::vector<RTC::InPort<RTC::TimedDoubleSeq> *> m_wrenchesIn;
   std::vector<RTC::TimedDoubleSeq> m_ref_wrenches;
   std::vector<RTC::InPort<RTC::TimedDoubleSeq> *> m_ref_wrenchesIn;
-  
+
   // </rtc-template>
 
   // DataOutPort declaration
@@ -233,24 +233,24 @@ class Stabilizer
   RTC::OutPort<RTC::TimedDoubleSeq> m_allRefWrenchOut;
   RTC::OutPort<RTC::TimedDoubleSeq> m_allEECompOut;
   RTC::OutPort<RTC::TimedDoubleSeq> m_debugDataOut;
-  
+
   // </rtc-template>
 
   // CORBA Port declaration
   // <rtc-template block="corbaport_declare">
-  
+
   // </rtc-template>
 
   // Service declaration
   // <rtc-template block="service_declare">
   RTC::CorbaPort m_StabilizerServicePort;
-  
+
   // </rtc-template>
 
   // Consumer declaration
   // <rtc-template block="consumer_declare">
   StabilizerService_impl m_service0;
-  
+
   // </rtc-template>
 
  private:
@@ -278,6 +278,13 @@ class Stabilizer
     double avoid_gain, reference_gain, max_limb_length, limb_length_margin;
     size_t ik_loop_count;
   };
+  struct AdaptiveContactParameters {
+    bool use_adaptive_contact;
+    double radius;
+    hrp::Vector3 x_cop_offset;
+    double k_gain;
+    double d_gain;
+  };
   enum cmode {MODE_IDLE, MODE_AIR, MODE_ST, MODE_SYNC_TO_IDLE, MODE_SYNC_TO_AIR} control_mode;
   // members
   std::map<std::string, hrp::VirtualForceSensorParam> m_vfs;
@@ -296,6 +303,7 @@ class Stabilizer
   std::vector<int> m_will_fall_counter;
   int is_air_counter, detection_count_to_air;
   bool is_legged_robot, on_ground, is_emergency, is_seq_interpolating, reset_emergency_flag, eefm_use_force_difference_control, eefm_use_swing_damping, initial_cp_too_large_error, use_limb_stretch_avoidance, use_zmp_truncation;
+  std::vector <AdaptiveContactParameters> adaptive_contact_parameters;
   bool is_walking, is_estop_while_walking;
   hrp::Vector3 current_root_p, target_root_p;
   hrp::Matrix33 current_root_R, target_root_R, prev_act_foot_origin_rot, prev_ref_foot_origin_rot, target_foot_origin_rot, ref_foot_origin_rot;

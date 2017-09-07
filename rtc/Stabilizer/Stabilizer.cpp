@@ -118,7 +118,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   // <rtc-template block="bind_config">
   // Bind variables and configuration variable
   bindParameter("debugLevel", m_debugLevel, "0");
-  
+
   // </rtc-template>
 
   // Registration: InPort/OutPort/Service
@@ -162,15 +162,15 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   addOutPort("allRefWrench", m_allRefWrenchOut);
   addOutPort("allEEComp", m_allEECompOut);
   addOutPort("debugData", m_debugDataOut);
-  
+
   // Set service provider to Ports
   m_StabilizerServicePort.registerProvider("service0", "StabilizerService", m_service0);
-  
+
   // Set service consumers to Ports
-  
+
   // Set CORBA Service Ports
   addPort(m_StabilizerServicePort);
-  
+
   // </rtc-template>
   RTC::Properties& prop = getProperties();
   coil::stringTo(dt, prop["dt"].c_str());
@@ -187,7 +187,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for internal robot model
   m_robot = hrp::BodyPtr(new hrp::Body());
-  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(), 
+  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(),
                                CosNaming::NamingContext::_duplicate(naming.getRootContext())
                                )){
     std::cerr << "[" << m_profile.instance_name << "]failed to load model[" << prop["model"] << "]" << std::endl;
@@ -414,6 +414,15 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   limb_stretch_avoidance_vlimit[1] = 50 * 1e-3 * dt; // upper limit
   root_rot_compensation_limit[0] = root_rot_compensation_limit[1] = deg2rad(90.0);
   detection_count_to_air = static_cast<int>(0.0 / dt);
+  for (size_t i=0; i < stikp.size(); i++){
+    AdaptiveContactParameters acp;
+    acp.use_adaptive_contact = false;
+    acp.radius = 0.1;
+    acp.x_cop_offset = hrp::Vector3::Zero();
+    acp.k_gain = 1e-1;
+    acp.d_gain = 1e-4;
+    adaptive_contact_parameters.push_back(acp);
+  }
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -955,6 +964,13 @@ void Stabilizer::getActualParameters ()
         szd->get_vertices(support_polygon_vetices);
         szd->calc_convex_hull(support_polygon_vetices, ref_contact_states, ee_pos, ee_rot);
         if (!szd->is_inside_support_polygon(tmp_new_refzmp, hrp::Vector3::Zero(), true, std::string(m_profile.instance_name))) new_refzmp.head(2) = tmp_new_refzmp;
+      }
+
+      // Modify ref values for adaptive contact
+      for (size_t i = 0; i < ee_pos.size(); i++){
+        if (adaptive_contact_parameters[i].use_adaptive_contact) {
+          std::cerr << "[" << m_profile.instance_name << "]   " << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
+        }
       }
 
       // Distribute ZMP into each EE force/moment at each COP
@@ -2018,6 +2034,20 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
   i_stp.end_effector_list.length(stikp.size());
   i_stp.use_limb_stretch_avoidance = use_limb_stretch_avoidance;
   i_stp.use_zmp_truncation = use_zmp_truncation;
+  std::cerr << "before" << i_stp.adaptive_contact_parameters.length() <<'\n';
+  i_stp.adaptive_contact_parameters.length(adaptive_contact_parameters.size());
+  std::cerr << "after" << i_stp.adaptive_contact_parameters.length() << std::endl;
+  for (size_t i = 0; i < adaptive_contact_parameters.size(); i++){
+    OpenHRP::StabilizerService::AdaptiveContactParameters& acp = i_stp.adaptive_contact_parameters[i];
+    acp.use_adaptive_contact = adaptive_contact_parameters[i].use_adaptive_contact;
+    acp.radius = adaptive_contact_parameters[i].radius;
+    acp.x_cop_offset.length(3);
+    for (size_t ii = 0; ii < 3; ii++){
+      acp.x_cop_offset[ii] = adaptive_contact_parameters[i].x_cop_offset(ii);
+    }
+    acp.k_gain = adaptive_contact_parameters[i].k_gain;
+    acp.d_gain = adaptive_contact_parameters[i].d_gain;
+  }
   i_stp.limb_stretch_avoidance_time_const = limb_stretch_avoidance_time_const;
   i_stp.limb_length_margin.length(stikp.size());
   i_stp.detection_time_to_air = detection_count_to_air * dt;
@@ -2196,6 +2226,22 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
   is_estop_while_walking = i_stp.is_estop_while_walking;
   use_limb_stretch_avoidance = i_stp.use_limb_stretch_avoidance;
   use_zmp_truncation = i_stp.use_zmp_truncation;
+  if (i_stp.adaptive_contact_parameters.length() != adaptive_contact_parameters.size()) {
+    std::cerr << "[" << m_profile.instance_name << "]   adaptive_contact_parameters cannot be set. Length "
+              << i_stp.adaptive_contact_parameters.length() << " != " << adaptive_contact_parameters.size() << std::endl;
+  } else {
+    for( size_t i = 0; i < i_stp.adaptive_contact_parameters.length(); i++){
+      AdaptiveContactParameters acp;
+      acp.use_adaptive_contact = i_stp.adaptive_contact_parameters[i].use_adaptive_contact;
+      acp.radius = i_stp.adaptive_contact_parameters[i].radius;
+      for( size_t ii = 0; ii < 3; ii++){
+        acp.x_cop_offset(ii) = i_stp.adaptive_contact_parameters[i].x_cop_offset[ii];
+      }
+      acp.k_gain = i_stp.adaptive_contact_parameters[i].k_gain;
+      acp.d_gain = i_stp.adaptive_contact_parameters[i].d_gain;
+      adaptive_contact_parameters[i] = acp;
+    }
+  }
   limb_stretch_avoidance_time_const = i_stp.limb_stretch_avoidance_time_const;
   for (size_t i = 0; i < 2; i++) {
     limb_stretch_avoidance_vlimit[i] = i_stp.limb_stretch_avoidance_vlimit[i];
@@ -2830,5 +2876,3 @@ extern "C"
   }
 
 };
-
-
