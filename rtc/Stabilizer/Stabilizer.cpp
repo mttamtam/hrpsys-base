@@ -416,11 +416,12 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   detection_count_to_air = static_cast<int>(0.0 / dt);
   for (size_t i=0; i < stikp.size(); i++){
     AdaptiveContactParameters acp;
-    acp.use_adaptive_contact = false;
+    acp.use_adaptive_contact = true;
     acp.radius = 0.1;
     acp.x_cop_offset = hrp::Vector3::Zero();
     acp.k_gain = 1e-1;
     acp.d_gain = 1e-4;
+    // acp.d_foot_rpy_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, dt, hrp::Vector3::Zero())); // [Hz]
     adaptive_contact_parameters.push_back(acp);
   }
 
@@ -917,6 +918,7 @@ void Stabilizer::getActualParameters ()
     std::vector<double> limb_gains;
     std::vector<hrp::dvector6> ee_forcemoment_distribution_weight;
     std::vector<double> tmp_toeheel_ratio;
+    std::vector<AdaptiveContactParameters> acp_list;
     if (control_mode == MODE_ST) {
       std::vector<hrp::Vector3> ee_pos, cop_pos;
       std::vector<hrp::Matrix33> ee_rot;
@@ -943,6 +945,7 @@ void Stabilizer::getActualParameters ()
               ee_forcemoment_distribution_weight[i][j] = ikp.eefm_ee_forcemoment_distribution_weight[j];
           }
           tmp_toeheel_ratio.push_back(toeheel_ratio[i]);
+          acp_list.push_back(adaptive_contact_parameters[i]);
       }
 
       // All state variables are foot_origin coords relative
@@ -967,9 +970,33 @@ void Stabilizer::getActualParameters ()
       }
 
       // Modify ref values for adaptive contact
-      for (size_t i = 0; i < ee_pos.size(); i++){
+      for (size_t i = 0; i < acp_list.size(); i++){
         if (adaptive_contact_parameters[i].use_adaptive_contact) {
-          std::cerr << "[" << m_profile.instance_name << "]   " << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
+          // hrp::Vector3 d_foot_rpy_tmp = adaptive_contact_parameters[i].d_foot_rpy_filter->passFilter(hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]));
+          if (is_contact_list[i]){
+            std::cerr << i << " " << '\n';
+            hrp::Vector3 ee_rpy = hrp::rpyFromRot(ee_rot[i]);
+            std::cerr << "ee_rpy is " << ee_rpy << '\n';
+            adaptive_contact_parameters[i].x_cop_offset(0) = 0.05;
+            hrp::Vector3 ee_pos_before = ee_pos[i];
+            hrp::Vector3 cop;
+            calcCOP(cop, 0.0, i);
+            for(size_t j=0; j<2; j++){
+              ee_pos[i](j) = cop(j); // means cop in world frame
+                                  // + adaptive_contact_parameters[i].x_cop_offset(j)
+            }
+            std::cerr << "x before: " << ee_pos_before(0) << "\t after: " << ee_pos[i](0) << std::endl;
+            std::cerr << "y before: " << ee_pos_before(1) << "\t after: " << ee_pos[i](1) << std::endl;
+            std::cerr << "z before: " << ee_pos_before(2) << "\t after: " << ee_pos[i](2) << std::endl;
+            ee_pos[i](0) += 2*ee_rpy(1)*adaptive_contact_parameters[i].radius*cos(ee_rpy(1));
+            ee_pos[i](1) -= 2*ee_rpy(0)*adaptive_contact_parameters[i].radius*cos(-ee_rpy(0));
+            ee_pos[i](2) += std::pow(2*ee_rpy(1)*adaptive_contact_parameters[i].radius*sin(ee_rpy(1)), 2.0)
+                          + std::pow(-2*ee_rpy(0)*adaptive_contact_parameters[i].radius*sin(-ee_rpy(0)), 2.0);
+            stikp[i].d_foot_pos = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
+            // stikp[i].d_foot_rpy = d_foot_rpy_tmp;
+            stikp[i].d_foot_rpy = hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]);
+          }
+          //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
         }
       }
 
@@ -1310,6 +1337,25 @@ bool Stabilizer::calcZMP(hrp::Vector3& ret_zmp, const double zmp_z)
     ret_zmp = hrp::Vector3(tmpzmpx / tmpfz, tmpzmpy / tmpfz, zmp_z);
     return true; // on ground
   }
+};
+
+bool Stabilizer::calcCOP(hrp::Vector3& ret_cop, const double cop_z, const size_t ee_index)
+{
+  double tmpcopx = 0;
+  double tmpcopy = 0;
+  STIKParam &ikp = stikp[ee_index];
+  hrp::ForceSensor* sensor = m_robot->sensor<hrp::ForceSensor>(ikp.sensor_name);
+  hrp::Vector3 fsp = sensor->link->p + sensor->link->R * sensor->localPos;
+  hrp::Matrix33 tmpR;
+  rats::rotm3times(tmpR, sensor->link->R, sensor->localR);
+  hrp::Vector3 nf = tmpR * hrp::Vector3(m_wrenches[ee_index].data[0], m_wrenches[ee_index].data[1], m_wrenches[ee_index].data[2]);
+  hrp::Vector3 nm = tmpR * hrp::Vector3(m_wrenches[ee_index].data[3], m_wrenches[ee_index].data[4], m_wrenches[ee_index].data[5]);
+  // "humanoid robot" p.75 (3.24) (3.25)
+  tmpcopx = (nf(2) * fsp(0) - (fsp(2) - cop_z) * nf(0) - nm(1)) / nf(2);
+  tmpcopy = (nf(2) * fsp(1) - (fsp(2) - cop_z) * nf(1) + nm(0)) / nf(2);
+  ret_cop = hrp::Vector3(tmpcopx, tmpcopy, cop_z);
+  if (nf(2) < contact_decision_threshold) return false;
+  else return true;
 };
 
 void Stabilizer::calcStateForEmergencySignal()

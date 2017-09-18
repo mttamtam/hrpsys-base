@@ -112,6 +112,7 @@ class Stabilizer
   void sync_2_st ();
   void sync_2_idle();
   bool calcZMP(hrp::Vector3& ret_zmp, const double zmp_z);
+  bool calcCOP(hrp::Vector3& ret_cop, const double cop_z, const size_t ee_index);
   void calcStateForEmergencySignal();
   void calcRUNST();
   void moveBasePosRotForBodyRPYControl ();
@@ -284,6 +285,7 @@ class Stabilizer
     hrp::Vector3 x_cop_offset;
     double k_gain;
     double d_gain;
+    // boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> > d_foot_rpy_filter;
   };
   enum cmode {MODE_IDLE, MODE_AIR, MODE_ST, MODE_SYNC_TO_IDLE, MODE_SYNC_TO_AIR} control_mode;
   // members
