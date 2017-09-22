@@ -304,7 +304,9 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
           jpe_v.back()->setOptionalWeightVector(optw);
       }
       target_ee_p.push_back(hrp::Vector3::Zero());
+      rel_target_ee_p.push_back(hrp::Vector3::Zero());
       target_ee_R.push_back(hrp::Matrix33::Identity());
+      rel_target_ee_R.push_back(hrp::Matrix33::Identity());
       act_ee_p.push_back(hrp::Vector3::Zero());
       act_ee_R.push_back(hrp::Matrix33::Identity());
       projected_normal.push_back(hrp::Vector3::Zero());
@@ -976,7 +978,7 @@ void Stabilizer::getActualParameters ()
           if (is_contact_list[i]){
             std::cerr << i << " " << '\n';
             hrp::Vector3 ee_rpy = hrp::rpyFromRot(ee_rot[i]);
-            std::cerr << "ee_rpy is " << ee_rpy << '\n';
+            // std::cerr << "ee_rpy is " << ee_rpy << '\n';
             adaptive_contact_parameters[i].x_cop_offset(0) = 0.05;
             hrp::Vector3 ee_pos_before = ee_pos[i];
             hrp::Vector3 cop;
@@ -985,6 +987,15 @@ void Stabilizer::getActualParameters ()
               ee_pos[i](j) = cop(j); // means cop in world frame
                                   // + adaptive_contact_parameters[i].x_cop_offset(j)
             }
+            //一旦foot_origin_pos, rot 相対として、それをtargetのほうで足す。
+            //hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
+            hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos_before - foot_origin_pos);
+            hrp::Matrix33 rel_ee_rot_tmp = foot_origin_rot.transpose() * ee_rot[i];
+            std::cerr << "x target: " << target_ee_p[i](0) << "\t ee_pos: " << ee_pos_before(0) << std::endl;
+            std::cerr << "x target: " << target_ee_p[i](1) << "\t ee_pos: " << ee_pos_before(1) << std::endl;
+            std::cerr << "x target: " << target_ee_p[i](2) << "\t ee_pos: " << ee_pos_before(2) << std::endl;
+            target_ee_p[i] = target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp;
+            target_ee_R[i] = target_foot_origin_rot + rel_ee_rot_tmp;
             std::cerr << "x before: " << ee_pos_before(0) << "\t after: " << ee_pos[i](0) << std::endl;
             std::cerr << "y before: " << ee_pos_before(1) << "\t after: " << ee_pos[i](1) << std::endl;
             std::cerr << "z before: " << ee_pos_before(2) << "\t after: " << ee_pos[i](2) << std::endl;
@@ -992,9 +1003,9 @@ void Stabilizer::getActualParameters ()
             ee_pos[i](1) -= 2*ee_rpy(0)*adaptive_contact_parameters[i].radius*cos(-ee_rpy(0));
             ee_pos[i](2) += std::pow(2*ee_rpy(1)*adaptive_contact_parameters[i].radius*sin(ee_rpy(1)), 2.0)
                           + std::pow(-2*ee_rpy(0)*adaptive_contact_parameters[i].radius*sin(-ee_rpy(0)), 2.0);
-            stikp[i].d_foot_pos = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
+            // stikp[i].d_foot_pos = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
             // stikp[i].d_foot_rpy = d_foot_rpy_tmp;
-            stikp[i].d_foot_rpy = hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]);
+            // stikp[i].d_foot_rpy = hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]);
           }
           //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
         }
@@ -1278,12 +1289,15 @@ void Stabilizer::getTargetParameters ()
     for (size_t i = 0; i < stikp.size(); i++) {
       stikp[i].target_ee_diff_p = foot_origin_rot.transpose() * (target_ee_p[i] - foot_origin_pos);
       stikp[i].target_ee_diff_r = foot_origin_rot.transpose() * target_ee_R[i];
+      rel_target_ee_p[i] = foot_origin_rot.transpose() * (target_ee_p[i] - foot_origin_pos);
+      rel_target_ee_R[i] = foot_origin_rot.transpose() * target_ee_R[i];
       ref_force[i] = foot_origin_rot.transpose() * ref_force[i];
       ref_moment[i] = foot_origin_rot.transpose() * ref_moment[i];
     }
     ref_total_force = foot_origin_rot.transpose() * ref_total_force;
     ref_total_moment = foot_origin_rot.transpose() * ref_total_moment;
     target_foot_origin_rot = foot_origin_rot;
+    target_foot_origin_pos = foot_origin_pos;
     // capture point
     ref_cp = ref_cog + ref_cogvel / std::sqrt(eefm_gravitational_acceleration / (ref_cog - ref_zmp)(2));
     rel_ref_cp = hrp::Vector3(ref_cp(0), ref_cp(1), ref_zmp(2));
