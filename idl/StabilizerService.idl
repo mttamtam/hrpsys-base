@@ -49,7 +49,7 @@ module OpenHRP
     };
 
     /**
-     * @enum TwoDimensionVertex
+     * @struct TwoDimensionVertex
      * @brief 2D vertex of a support polygon [m]
      */
     struct TwoDimensionVertex {
@@ -57,7 +57,7 @@ module OpenHRP
     };
 
     /**
-     * @enum SupportPolygonVertices
+     * @struct SupportPolygonVertices
      * @brief Vertices of a support polygon at the end effector
      */
     struct SupportPolygonVertices {
@@ -65,7 +65,7 @@ module OpenHRP
     };
 
     /**
-     * @enum IKLimbParameters
+     * @struct IKLimbParameters
      * @brief IKLimbParameters
      */
     struct IKLimbParameters {
@@ -81,6 +81,27 @@ module OpenHRP
         double manipulability_limit;
         /// IK loop count
         unsigned short ik_loop_count;
+    };
+
+    /**
+     * @struct AdaptiveContactParameters
+     * @brief AdaptiveContactParameters
+     */
+    struct AdaptiveContactParameters {
+      /// Use advanced contact adaptation
+      boolean use_adaptive_contact;
+      /// contact surface's radius
+      double radius;
+      /// cop offset calculated in the end effector coordinates
+      sequence<double, 3>x_cop_offset;
+      /// currently not used
+      // sequence<double, 3>x_cor;
+      /// feedback for position or orientation, true: pos, false: orientation
+      // boolean pos_or_rot;
+      /// feedback gain for diff. between output and actual
+      double k_gain;
+      /// feedback gain for diff. between current diff. and before diff.
+      double d_gain;
     };
 
     /**
@@ -237,6 +258,8 @@ module OpenHRP
       DblArray2 root_rot_compensation_limit;
       /// Whether truncate zmp according to foot support polygon or not
       boolean use_zmp_truncation;
+      /// Sequence of adaptive contact param
+      sequence<AdaptiveContactParameters> adaptive_contact_parameters;
     };
 
     /**
@@ -269,4 +292,3 @@ module OpenHRP
     boolean dummy();
   };
 };
-
