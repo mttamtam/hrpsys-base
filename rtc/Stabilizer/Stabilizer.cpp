@@ -987,25 +987,37 @@ void Stabilizer::getActualParameters ()
               ee_pos[i](j) = cop(j); // means cop in world frame
                                   // + adaptive_contact_parameters[i].x_cop_offset(j)
             }
-            //一旦foot_origin_pos, rot 相対として、それをtargetのほうで足す。
-            //hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
-            hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos_before - foot_origin_pos);
-            hrp::Matrix33 rel_ee_rot_tmp = foot_origin_rot.transpose() * ee_rot[i];
-            std::cerr << "x target: " << target_ee_p[i](0) << "\t ee_pos: " << ee_pos_before(0) << std::endl;
-            std::cerr << "x target: " << target_ee_p[i](1) << "\t ee_pos: " << ee_pos_before(1) << std::endl;
-            std::cerr << "x target: " << target_ee_p[i](2) << "\t ee_pos: " << ee_pos_before(2) << std::endl;
-            target_ee_p[i] = target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp;
-            target_ee_R[i] = target_foot_origin_rot + rel_ee_rot_tmp;
-            std::cerr << "x before: " << ee_pos_before(0) << "\t after: " << ee_pos[i](0) << std::endl;
-            std::cerr << "y before: " << ee_pos_before(1) << "\t after: " << ee_pos[i](1) << std::endl;
-            std::cerr << "z before: " << ee_pos_before(2) << "\t after: " << ee_pos[i](2) << std::endl;
-            ee_pos[i](0) += 2*ee_rpy(1)*adaptive_contact_parameters[i].radius*cos(ee_rpy(1));
-            ee_pos[i](1) -= 2*ee_rpy(0)*adaptive_contact_parameters[i].radius*cos(-ee_rpy(0));
-            ee_pos[i](2) += std::pow(2*ee_rpy(1)*adaptive_contact_parameters[i].radius*sin(ee_rpy(1)), 2.0)
-                          + std::pow(-2*ee_rpy(0)*adaptive_contact_parameters[i].radius*sin(-ee_rpy(0)), 2.0);
+            // std::cerr << "x before: " << ee_pos_before(0) << "\t after: " << ee_pos[i](0) << std::endl;
+            // std::cerr << "y before: " << ee_pos_before(1) << "\t after: " << ee_pos[i](1) << std::endl;
+            // std::cerr << "z before: " << ee_pos_before(2) << "\t after: " << ee_pos[i](2) << std::endl;
+            // ee_pos[i](0) += 2*ee_rpy(1)*adaptive_contact_parameters[i].radius*cos(ee_rpy(1));
+            // ee_pos[i](1) -= 2*ee_rpy(0)*adaptive_contact_parameters[i].radius*cos(-ee_rpy(0));
+            // ee_pos[i](2) += std::pow(2*ee_rpy(1)*adaptive_contact_parameters[i].radius*sin(ee_rpy(1)), 2.0)
+            //               + std::pow(-2*ee_rpy(0)*adaptive_contact_parameters[i].radius*sin(-ee_rpy(0)), 2.0);
+
             // stikp[i].d_foot_pos = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
             // stikp[i].d_foot_rpy = d_foot_rpy_tmp;
             // stikp[i].d_foot_rpy = hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]);
+
+            //一旦foot_origin_pos, rot 相対として、それをtargetのほうで足す。
+            //hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
+
+            hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos_before - foot_origin_pos);
+            hrp::Matrix33 rel_ee_rot_tmp = foot_origin_rot.transpose() * ee_rot[i];
+            hrp::Matrix33 target_ee_R_before = target_ee_R[i];
+            hrp::Vector3 target_ee_rpy = hrp::rpyFromRot(target_ee_R[i]);
+            //std::cerr << "target rpy: " << target_ee_rpy.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "[", "]")) << std::endl;
+            print_vector(std::string(m_profile.instance_name), target_ee_rpy);
+            // target_ee_p[i] = target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp;
+            // target_ee_R[i] = target_foot_origin_rot * rel_ee_rot_tmp;
+            std::cerr << "roll before: " << hrp::rpyFromRot(target_ee_R_before)(0) << "\t after: " << hrp::rpyFromRot(target_ee_R[i])(0) << '\n';
+            std::cerr << "pitch before: " << hrp::rpyFromRot(target_ee_R_before)(1) << "\t after: " << hrp::rpyFromRot(target_ee_R[i])(1) << '\n';
+            std::cerr << "yaw before: " << hrp::rpyFromRot(target_ee_R_before)(2) << "\t after: " << hrp::rpyFromRot(target_ee_R[i])(2) << '\n';
+            // stikp[i].d_foot_rpy -= hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R[i])
+            //                       -hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R_before);
+            std::cerr << "x target: " << target_ee_p[i](0) << "\t ee_pos: " << ee_pos_before(0) << std::endl;
+            std::cerr << "y target: " << target_ee_p[i](1) << "\t ee_pos: " << ee_pos_before(1) << std::endl;
+            std::cerr << "z target: " << target_ee_p[i](2) << "\t ee_pos: " << ee_pos_before(2) << std::endl;
           }
           //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
         }

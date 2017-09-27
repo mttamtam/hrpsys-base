@@ -152,6 +152,12 @@ class Stabilizer
       return (transition_time / dt);
   };
   void calcDiffFootOriginExtMoment ();
+  inline void print_vector(std::string index, const hrp::Vector3 &vec, bool new_line = true){
+    std::cerr << "[" << index << "]" << vec.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "[", "]"));
+    if(new_line){
+      std::cerr << std::endl;
+    }
+  };
 
  protected:
   // Configuration variable declaration
