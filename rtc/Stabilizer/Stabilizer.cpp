@@ -1012,8 +1012,13 @@ void Stabilizer::getActualParameters ()
             //std::cerr << "target rpy: " << target_ee_rpy.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "[", "]")) << std::endl;
             // print_vector("target_ee_rpy", target_ee_rpy);
 
+            //actual foot oigin relative
+            // stikp[i].d_foot_pos = 0.2*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.8*stikp[i].d_foot_pos;
+            // stikp[i].d_foot_rpy = 0.5*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.5*stikp[i].d_foot_rpy;
+
             print_vector("target_ee_p_before", target_ee_p[i]);
-            target_ee_p[i] = 0.1* (target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp) + 0.9*target_ee_p[i];
+
+            // target_ee_p[i] = 0.1* (target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp) + 0.9*target_ee_p[i];
             print_vector("target_ee_p_after", target_ee_p[i]);
             // target_ee_R[i] = target_foot_origin_rot * rel_ee_rot_tmp;
             // stikp[i].d_foot_rpy -= hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R[i])
@@ -1102,12 +1107,18 @@ void Stabilizer::getActualParameters ()
               if (!eefm_use_swing_damping || !large_swing_m_diff[j]) tmp_damping_gain(j) = (1-transition_smooth_gain) * ikp.eefm_rot_damping_gain(j) * 10 + transition_smooth_gain * ikp.eefm_rot_damping_gain(j);
               else tmp_damping_gain(j) = (1-transition_smooth_gain) * eefm_swing_rot_damping_gain(j) * 10 + transition_smooth_gain * eefm_swing_rot_damping_gain(j);
           }
+          // ikp.d_foot_rpy += calcDampingControlDiff(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           ikp.d_foot_rpy = calcDampingControl(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           ikp.d_foot_rpy = vlimit(ikp.d_foot_rpy, -1 * ikp.eefm_rot_compensation_limit, ikp.eefm_rot_compensation_limit);
         }
         if (!eefm_use_force_difference_control) { // Pos
             hrp::Vector3 tmp_damping_gain = (1-transition_smooth_gain) * ikp.eefm_pos_damping_gain * 10 + transition_smooth_gain * ikp.eefm_pos_damping_gain;
+            // ikp.d_foot_pos += calcDampingControlDiff(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
+            print_vector("ikp.ref_force", ikp.ref_force);
+            print_vector("sensor_force", sensor_force);
+            hrp::Vector3 d_foot_pos_before = ikp.d_foot_pos;
             ikp.d_foot_pos = calcDampingControl(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
+            print_vector("diff:", ikp.d_foot_pos - d_foot_pos_before);
             ikp.d_foot_pos = vlimit(ikp.d_foot_pos, -1 * ikp.eefm_pos_compensation_limit, ikp.eefm_pos_compensation_limit);
         }
         // Actual ee frame =>
@@ -1698,6 +1709,7 @@ void Stabilizer::calcEEForceMomentControl() {
             // foot force difference control version
             // total_target_foot_p[i](2) = target_foot_p[i](2) + (i==0?0.5:-0.5)*zctrl;
             // foot force independent damping control
+            print_vector("current_d_foot_pos", current_d_foot_pos[i]);
             tmpp[i] = target_ee_p[i] - current_d_foot_pos[i];
           } else {
             tmpp[i] = target_ee_p[i];
@@ -1820,6 +1832,12 @@ hrp::Vector3 Stabilizer::calcDampingControl (const hrp::Vector3& tau_d, const hr
                                              const hrp::Vector3& DD, const hrp::Vector3& TT)
 {
   return ((tau_d - tau).cwiseQuotient(DD) - prev_d.cwiseQuotient(TT)) * dt + prev_d;
+};
+
+hrp::Vector3 Stabilizer::calcDampingControlDiff (const hrp::Vector3& tau_d, const hrp::Vector3& tau, const hrp::Vector3& prev_d,
+                                             const hrp::Vector3& DD, const hrp::Vector3& TT)
+{
+  return ((tau_d - tau).cwiseQuotient(DD) - prev_d.cwiseQuotient(TT)) * dt;
 };
 
 void Stabilizer::calcDiffFootOriginExtMoment ()

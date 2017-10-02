@@ -138,6 +138,8 @@ class Stabilizer
   double calcDampingControl (const double prev_d, const double TT);
   hrp::Vector3 calcDampingControl (const hrp::Vector3& tau_d, const hrp::Vector3& tau, const hrp::Vector3& prev_d,
                                    const hrp::Vector3& DD, const hrp::Vector3& TT);
+  hrp::Vector3 calcDampingControlDiff (const hrp::Vector3& tau_d, const hrp::Vector3& tau, const hrp::Vector3& prev_d,
+                                  const hrp::Vector3& DD, const hrp::Vector3& TT);
   double vlimit(double value, double llimit_value, double ulimit_value);
   hrp::Vector3 vlimit(const hrp::Vector3& value, double llimit_value, double ulimit_value);
   hrp::Vector3 vlimit(const hrp::Vector3& value, const hrp::Vector3& limit_value);
