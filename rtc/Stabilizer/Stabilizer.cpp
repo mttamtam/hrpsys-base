@@ -425,6 +425,8 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
     acp.d_gain = 1e-4;
     // acp.d_foot_rpy_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, dt, hrp::Vector3::Zero())); // [Hz]
     adaptive_contact_parameters.push_back(acp);
+    ac_ee_p.push_back(hrp::Vector3::Zero());
+    ac_ee_rpy.push_back(hrp::Vector3::Zero());
   }
 
   // parameters for RUNST
@@ -1002,7 +1004,7 @@ void Stabilizer::getActualParameters ()
             print_vector("cop", cop);
             print_vector("ee_pos_before", ee_pos_before);
             //一旦foot_origin_pos, rot 相対として、それをtargetのほうで足す。
-            hrp::Vector3 hoge = 0.1*ee_pos[i] + 0.9*ee_pos_before;
+            hrp::Vector3 hoge = 0.1*ee_pos[i] + 0.9*ee_pos[i];
             hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (hoge - foot_origin_pos);
 
             // hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos_before - foot_origin_pos);
@@ -1013,8 +1015,10 @@ void Stabilizer::getActualParameters ()
             // print_vector("target_ee_rpy", target_ee_rpy);
 
             //actual foot oigin relative
-            stikp[i].d_foot_pos = 0.3*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.7*stikp[i].d_foot_pos;
-            stikp[i].d_foot_rpy = 0.3*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.7*stikp[i].d_foot_rpy;
+            double timeconstp = 1; // (sec)
+            double timeconstr = 1; // (sec)
+            ac_ee_p[i] = 0.2*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.8*ac_ee_p[i] - 0.02*ac_ee_p[i];
+            ac_ee_rpy[i] = 0.4*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.6*ac_ee_rpy[i] - 0.02*ac_ee_rpy[i];
 
             print_vector("target_ee_p_before", target_ee_p[i]);
 
@@ -1023,6 +1027,9 @@ void Stabilizer::getActualParameters ()
             // target_ee_R[i] = target_foot_origin_rot * rel_ee_rot_tmp;
             // stikp[i].d_foot_rpy -= hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R[i])
             //                       -hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R_before);
+          }else{
+            ac_ee_p[i] -= ac_ee_p[i]/50.0;
+            ac_ee_rpy[i] -= ac_ee_rpy[i]/50.0;
           }
           //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
         }
@@ -1107,8 +1114,8 @@ void Stabilizer::getActualParameters ()
               if (!eefm_use_swing_damping || !large_swing_m_diff[j]) tmp_damping_gain(j) = (1-transition_smooth_gain) * ikp.eefm_rot_damping_gain(j) * 10 + transition_smooth_gain * ikp.eefm_rot_damping_gain(j);
               else tmp_damping_gain(j) = (1-transition_smooth_gain) * eefm_swing_rot_damping_gain(j) * 10 + transition_smooth_gain * eefm_swing_rot_damping_gain(j);
           }
-          ikp.d_foot_rpy += calcDampingControlDiff(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
-          // ikp.d_foot_rpy = calcDampingControl(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
+          // ikp.d_foot_rpy += calcDampingControlDiff(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
+          ikp.d_foot_rpy = calcDampingControl(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           // ikp.d_foot_rpy = vlimit(ikp.d_foot_rpy, -1 * ikp.eefm_rot_compensation_limit, ikp.eefm_rot_compensation_limit);
         }
         if (!eefm_use_force_difference_control) { // Pos
@@ -1116,8 +1123,8 @@ void Stabilizer::getActualParameters ()
             print_vector("ikp.ref_force", ikp.ref_force);
             print_vector("sensor_force", sensor_force);
             hrp::Vector3 d_foot_pos_before = ikp.d_foot_pos;
-            ikp.d_foot_pos += calcDampingControlDiff(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
-            // ikp.d_foot_pos = calcDampingControl(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
+            // ikp.d_foot_pos += calcDampingControlDiff(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
+            ikp.d_foot_pos = calcDampingControl(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
             print_vector("diff:", ikp.d_foot_pos - d_foot_pos_before);
             // ikp.d_foot_pos = vlimit(ikp.d_foot_pos, -1 * ikp.eefm_pos_compensation_limit, ikp.eefm_pos_compensation_limit);
         }
@@ -1705,12 +1712,13 @@ void Stabilizer::calcEEForceMomentControl() {
         if (is_ik_enable[i]) {
           // Add damping_control compensation to target value
           if (is_feedback_control_enable[i]) {
-            rats::rotm3times(tmpR[i], target_ee_R[i], hrp::rotFromRpy(-1*stikp[i].ee_d_foot_rpy));
+            rats::rotm3times(tmpR[i], target_ee_R[i], hrp::rotFromRpy(ac_ee_rpy[i]));
+            rats::rotm3times(tmpR[i], tmpR[i], hrp::rotFromRpy(-1*stikp[i].ee_d_foot_rpy));
             // foot force difference control version
             // total_target_foot_p[i](2) = target_foot_p[i](2) + (i==0?0.5:-0.5)*zctrl;
             // foot force independent damping control
             print_vector("current_d_foot_pos", current_d_foot_pos[i]);
-            tmpp[i] = target_ee_p[i] - current_d_foot_pos[i];
+            tmpp[i] = target_ee_p[i] + ac_ee_p[i] - current_d_foot_pos[i];
           } else {
             tmpp[i] = target_ee_p[i];
             tmpR[i] = target_ee_R[i];
