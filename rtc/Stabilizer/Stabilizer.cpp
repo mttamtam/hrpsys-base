@@ -421,12 +421,22 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
     acp.use_adaptive_contact = true;
     acp.radius = 0.1;
     acp.x_cop_offset = hrp::Vector3::Zero();
-    acp.k_gain = 1e-1;
-    acp.d_gain = 1e-4;
+    acp.k_gain = 0.02;
+    acp.d_gain = 2e-4;
     // acp.d_foot_rpy_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, dt, hrp::Vector3::Zero())); // [Hz]
     adaptive_contact_parameters.push_back(acp);
     ac_ee_p.push_back(hrp::Vector3::Zero());
     ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    ac_ee_p_filtered.push_back(hrp::Vector3::Zero());
+    ac_ee_rpy_filtered.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_p.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_p_filtered.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_rpy_filtered.push_back(hrp::Vector3::Zero());
+    d_ac_ee_p.push_back(hrp::Vector3::Zero());
+    d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    prev_d_ac_ee_p.push_back(hrp::Vector3::Zero());
+    prev_d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
   }
 
   // parameters for RUNST
@@ -977,7 +987,7 @@ void Stabilizer::getActualParameters ()
       for (size_t i = 0; i < acp_list.size(); i++){
         if (adaptive_contact_parameters[i].use_adaptive_contact) {
           // hrp::Vector3 d_foot_rpy_tmp = adaptive_contact_parameters[i].d_foot_rpy_filter->passFilter(hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]));
-          if (is_contact_list[i]){
+          // if (is_contact_list[i]){
             std::cerr << i << " " << '\n';
             hrp::Vector3 ee_rpy = hrp::rpyFromRot(ee_rot[i]);
             // std::cerr << "ee_rpy is " << ee_rpy << '\n';
@@ -1017,8 +1027,22 @@ void Stabilizer::getActualParameters ()
             //actual foot oigin relative
             double timeconstp = 1; // (sec)
             double timeconstr = 1; // (sec)
-            ac_ee_p[i] = 0.2*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.8*ac_ee_p[i] - 0.02*ac_ee_p[i];
-            ac_ee_rpy[i] = 0.4*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.6*ac_ee_rpy[i] - 0.02*ac_ee_rpy[i];
+            ac_ee_p_filtered[i] = 0.5*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.5*ac_ee_p[i];
+            ac_ee_rpy_filtered[i] = 0.5*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.5*ac_ee_rpy[i];
+            // ac_ee_p_filtered[i] = rel_ee_pos[i] - rel_target_ee_p[i];
+            // ac_ee_rpy_filtered[i] = hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i]);
+            d_ac_ee_p[i] = adaptive_contact_parameters[i].k_gain*(ac_ee_p_filtered[i]) + adaptive_contact_parameters[i].d_gain*(ac_ee_p_filtered[i] - prev_ac_ee_p_filtered[i]);
+            d_ac_ee_rpy[i] = adaptive_contact_parameters[i].k_gain*(ac_ee_rpy_filtered[i]) + adaptive_contact_parameters[i].d_gain*(ac_ee_rpy_filtered[i] - prev_ac_ee_rpy_filtered[i]);
+            // ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i]*0.002 - 0.02*ac_ee_p[i];
+            // ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i]*0.002 - 0.02*ac_ee_rpy[i];
+            ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i] - 0.03 * ac_ee_p[i];
+            ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i] - 0.03 * ac_ee_rpy[i];
+
+            prev_ac_ee_p_filtered[i] = ac_ee_p_filtered[i];
+            prev_ac_ee_rpy_filtered[i] = ac_ee_rpy_filtered[i];
+
+            // ac_ee_p[i] = 0.2*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.8*ac_ee_p[i] - 0.02*ac_ee_p[i];
+            // ac_ee_rpy[i] = 0.4*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.6*ac_ee_rpy[i] - 0.02*ac_ee_rpy[i];
 
             print_vector("target_ee_p_before", target_ee_p[i]);
 
@@ -1027,10 +1051,10 @@ void Stabilizer::getActualParameters ()
             // target_ee_R[i] = target_foot_origin_rot * rel_ee_rot_tmp;
             // stikp[i].d_foot_rpy -= hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R[i])
             //                       -hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R_before);
-          }else{
-            ac_ee_p[i] -= ac_ee_p[i]/50.0;
-            ac_ee_rpy[i] -= ac_ee_rpy[i]/50.0;
-          }
+          // }else{
+            // ac_ee_p[i] -= ac_ee_p[i]/50.0;
+            // ac_ee_rpy[i] -= ac_ee_rpy[i]/50.0;
+          // }
           //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
         }
       }

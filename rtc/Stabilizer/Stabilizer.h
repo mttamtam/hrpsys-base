@@ -319,7 +319,9 @@ class Stabilizer
   hrp::Matrix33 current_root_R, target_root_R, prev_act_foot_origin_rot, prev_ref_foot_origin_rot, target_foot_origin_rot, ref_foot_origin_rot;
   std::vector <hrp::Vector3> target_ee_p, rel_target_ee_p, rel_ee_pos, act_ee_p, projected_normal, act_force, ref_force, ref_moment;
   std::vector <hrp::Matrix33> target_ee_R, rel_target_ee_R, rel_ee_rot, act_ee_R;
-  std::vector <hrp::Vector3> ac_ee_p, ac_ee_rpy;
+  std::vector <hrp::Vector3> ac_ee_p, ac_ee_rpy, ac_ee_p_filtered, ac_ee_rpy_filtered;
+  std::vector <hrp::Vector3> prev_ac_ee_p, prev_ac_ee_rpy, prev_ac_ee_p_filtered, prev_ac_ee_rpy_filtered;
+  std::vector <hrp::Vector3> d_ac_ee_p, d_ac_ee_rpy, prev_d_ac_ee_p, prev_d_ac_ee_rpy;
   std::vector<std::string> rel_ee_name;
   rats::coordinates target_foot_midcoords;
   hrp::Vector3 ref_zmp, ref_cog, ref_cp, ref_cogvel, rel_ref_cp, prev_ref_cog, prev_ref_zmp;
