@@ -1036,7 +1036,9 @@ void Stabilizer::getActualParameters ()
             // ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i]*0.002 - 0.02*ac_ee_p[i];
             // ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i]*0.002 - 0.02*ac_ee_rpy[i];
             ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i] - 0.03 * ac_ee_p[i];
+            ac_ee_p[i] = vlimit(ac_ee_p[i], -0.2, 0.2);
             ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i] - 0.03 * ac_ee_rpy[i];
+            ac_ee_rpy[i] = vlimit(ac_ee_rpy[i], -0.8, 0.8);
 
             prev_ac_ee_p_filtered[i] = ac_ee_p_filtered[i];
             prev_ac_ee_rpy_filtered[i] = ac_ee_rpy_filtered[i];
@@ -1140,7 +1142,7 @@ void Stabilizer::getActualParameters ()
           }
           // ikp.d_foot_rpy += calcDampingControlDiff(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           ikp.d_foot_rpy = calcDampingControl(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
-          // ikp.d_foot_rpy = vlimit(ikp.d_foot_rpy, -1 * ikp.eefm_rot_compensation_limit, ikp.eefm_rot_compensation_limit);
+          ikp.d_foot_rpy = vlimit(ikp.d_foot_rpy, -1 * ikp.eefm_rot_compensation_limit, ikp.eefm_rot_compensation_limit);
         }
         if (!eefm_use_force_difference_control) { // Pos
             hrp::Vector3 tmp_damping_gain = (1-transition_smooth_gain) * ikp.eefm_pos_damping_gain * 10 + transition_smooth_gain * ikp.eefm_pos_damping_gain;
@@ -1150,7 +1152,7 @@ void Stabilizer::getActualParameters ()
             // ikp.d_foot_pos += calcDampingControlDiff(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
             ikp.d_foot_pos = calcDampingControl(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
             print_vector("diff:", ikp.d_foot_pos - d_foot_pos_before);
-            // ikp.d_foot_pos = vlimit(ikp.d_foot_pos, -1 * ikp.eefm_pos_compensation_limit, ikp.eefm_pos_compensation_limit);
+            ikp.d_foot_pos = vlimit(ikp.d_foot_pos, -1 * ikp.eefm_pos_compensation_limit, ikp.eefm_pos_compensation_limit);
         }
         // Actual ee frame =>
         ikp.ee_d_foot_rpy = ee_R.transpose() * (foot_origin_rot * ikp.d_foot_rpy);
