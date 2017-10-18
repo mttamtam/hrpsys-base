@@ -647,6 +647,18 @@ RTC::ReturnCode_t Stabilizer::onExecute(RTC::UniqueId ec_id)
     getTargetParameters();
     getActualParameters();
     calcStateForEmergencySignal();
+    if(control_mode != MODE_ST){
+        for( size_t i= 0; i<stikp.size(); i++){
+            ac_ee_p[i] = hrp::Vector3::Zero();
+            ac_ee_rpy[i] = hrp::Vector3::Zero();
+            ac_ee_p_filtered[i] = hrp::Vector3::Zero();
+            ac_ee_rpy_filtered[i] = hrp::Vector3::Zero();
+            d_ac_ee_p[i] = hrp::Vector3::Zero();
+            d_ac_ee_rpy[i] = hrp::Vector3::Zero();
+            prev_ac_ee_p_filtered[i] = hrp::Vector3::Zero();
+            prev_ac_ee_rpy_filtered[i] = hrp::Vector3::Zero();
+        }
+    }
     switch (control_mode) {
     case MODE_IDLE:
       break;
