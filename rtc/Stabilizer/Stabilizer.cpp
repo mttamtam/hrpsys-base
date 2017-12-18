@@ -118,7 +118,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   // <rtc-template block="bind_config">
   // Bind variables and configuration variable
   bindParameter("debugLevel", m_debugLevel, "0");
-  
+
   // </rtc-template>
 
   // Registration: InPort/OutPort/Service
@@ -162,15 +162,15 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   addOutPort("allRefWrench", m_allRefWrenchOut);
   addOutPort("allEEComp", m_allEECompOut);
   addOutPort("debugData", m_debugDataOut);
-  
+
   // Set service provider to Ports
   m_StabilizerServicePort.registerProvider("service0", "StabilizerService", m_service0);
-  
+
   // Set service consumers to Ports
-  
+
   // Set CORBA Service Ports
   addPort(m_StabilizerServicePort);
-  
+
   // </rtc-template>
   RTC::Properties& prop = getProperties();
   coil::stringTo(dt, prop["dt"].c_str());
@@ -187,7 +187,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for internal robot model
   m_robot = hrp::BodyPtr(new hrp::Body());
-  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(), 
+  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(),
                                CosNaming::NamingContext::_duplicate(naming.getRootContext())
                                )){
     std::cerr << "[" << m_profile.instance_name << "]failed to load model[" << prop["model"] << "]" << std::endl;
@@ -414,6 +414,10 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   limb_stretch_avoidance_vlimit[1] = 50 * 1e-3 * dt; // upper limit
   root_rot_compensation_limit[0] = root_rot_compensation_limit[1] = deg2rad(90.0);
   detection_count_to_air = static_cast<int>(0.0 / dt);
+
+  // parameters for COM flywhell st
+  com_flywheel_st_mode = true;
+  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(20));
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -936,6 +940,28 @@ void Stabilizer::getActualParameters ()
           tmp_toeheel_ratio.push_back(toeheel_ratio[i]);
       }
 
+
+      //for compensation of new ref zmp
+      Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
+      Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
+      SimpleZMPDistributor::leg_type support_leg;
+      std::vector<double> zmp_check_margin(4, 0.03);
+      szd->set_vertices_from_margin_params(zmp_check_margin);
+      szd->get_margined_vertices(margined_support_polygon_vetices);
+      szd->calc_convex_hull(margined_support_polygon_vetices, act_contact_states, ee_pos, ee_rot);
+      if (!szd->is_inside_support_polygon(tmp_act_zmp, hrp::Vector3::Zero(), true, std::string(m_profile.instance_name)) && com_flywheel_st_mode){
+      // if(com_flywheel_st_mode){
+        hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
+        hrp::Vector3 act_zmp_diff = hrp::Vector3::Zero();
+        act_zmp_diff.head(2) = (act_zmp.head(2) - tmp_act_zmp);
+        use_flywheel_st = true;
+        new_refzmp_comp.head(2) = std::fabs((new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2))) / act_zmp_diff.head(2).norm() * act_zmp_diff.head(2).normalized();
+        new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
+        vlimit(new_refzmp_comp_moment, -600, 600);
+      } else {
+        use_flywheel_st = false;
+      }
+
       // All state variables are foot_origin coords relative
       if (DEBUGP) {
           std::cerr << "[" << m_profile.instance_name << "] ee values" << std::endl;
@@ -1435,14 +1461,41 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
     bool is_root_rot_limit = false;
+
+    hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
+    hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
+    double chest_pitch_acc_comp = 0;
+    if (use_flywheel_st) {
+      hrp::Matrix33 I;
+      m_robot->calcForwardKinematics(true);
+      m_robot->calcCM();
+      m_robot->rootLink()->calcSubMassCM();
+      m_robot->rootLink()->calcSubMassInertia(I);
+      d_rpy_acc_comp = I.inverse() * new_refzmp_comp_moment;
+      for (size_t i = 0; i < 2; i++) {
+        if (d_rpy_acc_comp(i)!=0){
+          double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
+          T_r1(i) = std::sqrt((flywheel_rpy_limit(2.0*i+j) - current_base_rpy[i])/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
+        }
+      }
+    }
     for (size_t i = 0; i < 2; i++) {
-        d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
-        d_rpy[i] = vlimit(d_rpy[i], -1 * root_rot_compensation_limit[i], root_rot_compensation_limit[i]);
-        is_root_rot_limit = is_root_rot_limit || (std::fabs(std::fabs(d_rpy[i]) - root_rot_compensation_limit[i] ) < 1e-5); // near the limit
+      // rpy vel update
+      d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
+      if (use_flywheel_st && T_r1(i) > dt && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
+      else d_rpy_vel(i) = d_rpy_vel_st(i);
+      // rpy update
+      d_rpy[i] += d_rpy_vel(i) * dt;
+
+      // d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
+      d_rpy[i] = vlimit(d_rpy[i], -1 * root_rot_compensation_limit[i], root_rot_compensation_limit[i]);
+      is_root_rot_limit = is_root_rot_limit || (std::fabs(std::fabs(d_rpy[i]) - root_rot_compensation_limit[i] ) < 1e-5); // near the limit
     }
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
     m_robot->rootLink()->R = current_root_R;
     m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
+      // This equation compensates the error of COM position due to rotation of the rootlink.
+      // It approximates the change of COM position as change of rootlink position because resolved momentum control is not available.
     m_robot->calcForwardKinematics();
     current_base_rpy = hrp::rpyFromRot(m_robot->rootLink()->R);
     current_base_pos = m_robot->rootLink()->p;
@@ -1812,6 +1865,7 @@ void Stabilizer::sync_2_st ()
   d_rpy[0] = d_rpy[1] = 0;
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
+  use_flywheel_st = false;
   for (size_t i = 0; i < stikp.size(); i++) {
     STIKParam& ikp = stikp[i];
     ikp.target_ee_diff_p = hrp::Vector3::Zero();
@@ -2054,6 +2108,10 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
       ilp.reference_gain = stikp[i].reference_gain;
       ilp.manipulability_limit = jpe_v[i]->getManipulabilityLimit();
       ilp.ik_loop_count = stikp[i].ik_loop_count; // size_t -> unsigned short, value may change, but ik_loop_count is small value and value not change
+  }
+  i_stp.com_flywheel_st_mode = com_flywheel_st_mode;
+  for (size_t i=0; i<flywheel_rpy_limit.size(); i++){
+    i_stp.flywheel_rpy_limit[i] = rad2deg(flywheel_rpy_limit(i));
   }
 };
 
@@ -2356,6 +2414,11 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
           std::cerr << stikp[i].ik_loop_count << ", ";
       }
       std::cerr << "]" << std::endl;
+  }
+  com_flywheel_st_mode = i_stp.com_flywheel_st_mode;
+  for (size_t i=0; i < flywheel_rpy_limit.size(); i++){
+    std::cerr << "flywheel_rpy_limit.size() = "<< flywheel_rpy_limit.size() << '\n';
+    flywheel_rpy_limit(i)=deg2rad(i_stp.flywheel_rpy_limit[i]);
   }
 }
 
@@ -2828,5 +2891,3 @@ extern "C"
   }
 
 };
-
-

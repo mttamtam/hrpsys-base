@@ -155,7 +155,7 @@ class Stabilizer
  protected:
   // Configuration variable declaration
   // <rtc-template block="config_declare">
-  
+
   // </rtc-template>
   RTC::TimedDoubleSeq m_qCurrent;
   RTC::TimedDoubleSeq m_qRef;
@@ -188,7 +188,7 @@ class Stabilizer
   RTC::TimedDoubleSeq m_allRefWrench;
   RTC::TimedDoubleSeq m_allEEComp;
   RTC::TimedDoubleSeq m_debugData;
-  
+
   // DataInPort declaration
   // <rtc-template block="inport_declare">
   RTC::InPort<RTC::TimedDoubleSeq> m_qCurrentIn;
@@ -209,7 +209,7 @@ class Stabilizer
   std::vector<RTC::InPort<RTC::TimedDoubleSeq> *> m_wrenchesIn;
   std::vector<RTC::TimedDoubleSeq> m_ref_wrenches;
   std::vector<RTC::InPort<RTC::TimedDoubleSeq> *> m_ref_wrenchesIn;
-  
+
   // </rtc-template>
 
   // DataOutPort declaration
@@ -233,24 +233,24 @@ class Stabilizer
   RTC::OutPort<RTC::TimedDoubleSeq> m_allRefWrenchOut;
   RTC::OutPort<RTC::TimedDoubleSeq> m_allEECompOut;
   RTC::OutPort<RTC::TimedDoubleSeq> m_debugDataOut;
-  
+
   // </rtc-template>
 
   // CORBA Port declaration
   // <rtc-template block="corbaport_declare">
-  
+
   // </rtc-template>
 
   // Service declaration
   // <rtc-template block="service_declare">
   RTC::CorbaPort m_StabilizerServicePort;
-  
+
   // </rtc-template>
 
   // Consumer declaration
   // <rtc-template block="consumer_declare">
   StabilizerService_impl m_service0;
-  
+
   // </rtc-template>
 
  private:
@@ -334,6 +334,13 @@ class Stabilizer
   double total_mass, transition_time, cop_check_margin, contact_decision_threshold;
   std::vector<double> cp_check_margin, tilt_margin;
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
+    // FLYWHEEL ST
+  bool com_flywheel_st_mode;
+  bool use_flywheel_st;
+  Eigen::Vector4d flywheel_rpy_limit;
+  hrp::Vector3 new_refzmp_comp_moment;
+  hrp::Vector3 d_rpy_vel;
+  hrp::Vector3 T_r1;
 };
 
 
