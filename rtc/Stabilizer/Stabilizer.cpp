@@ -417,7 +417,18 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for COM flywhell st
   com_flywheel_st_mode = true;
-  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(20));
+  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-20), deg2rad(20), deg2rad(-20), deg2rad(20));
+
+  // parameters for balance acc
+  cp_error_thre_h = Eigen::Vector2d(0.05, 0.05);
+  cp_error_thre_l = Eigen::Vector2d(0.03, 0.03);
+  balance_acc = Eigen::Vector2d(0.0, 0.0);
+  balance_acc_const = Eigen::Vector2d(4.0, 4.0);
+  balance_acc_moment = Eigen::Vector2d(0.0, 0.0);
+  balance_acc_mode.resize(2, false);
+  balance_acc_time.resize(2, 0.0);
+  balance_acc_vel.resize(2, 0.0);
+  balance_acc_pos.resize(2, 0.0);
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -961,6 +972,48 @@ void Stabilizer::getActualParameters ()
       } else {
         use_flywheel_st = false;
       }
+      // for acc
+      hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cp - act_cp - cp_offset); // copied from tmp_diff_cp
+      if (diff_cp(0) < -cp_error_thre_h(0)){ // act goes front of ref
+        balance_acc(0)=-balance_acc_const(0);
+        balance_acc_mode[0] = true;
+      }else if(diff_cp(0) > -cp_error_thre_l(0) && balance_acc_mode[0]){
+        balance_acc_mode[0] = false;
+      }else if(diff_cp(0) > cp_error_thre_h(0)){
+        balance_acc(0)=balance_acc_const(0);
+      }else if(diff_cp(0) < cp_error_thre_l(0) && balance_acc_mode[0]){
+        balance_acc_mode[0] = false;
+      }
+
+      if (diff_cp(1) < -cp_error_thre_h(1)){ // act goes left of ref
+        balance_acc(1)=-balance_acc_const(1);
+        balance_acc_mode[1] = true;
+      }else if(diff_cp(1) > -cp_error_thre_l(1) && balance_acc_mode[1]){
+        balance_acc_mode[1] = false;
+      }else if(diff_cp(1) > cp_error_thre_h(1)){
+        balance_acc(1)=balance_acc_const(1);
+      }else if(diff_cp(1) < cp_error_thre_l(1) && balance_acc_mode[1]){
+        balance_acc_mode[1] = false;
+      }
+
+      if(balance_acc_mode[0] == true){
+        balance_acc_time[0]+=dt;
+        if(use_flywheel_st==false){
+          use_flywheel_st=true;
+        }
+      }else{
+        balance_acc_time[0]=0.0;
+        balance_acc(0)=0.0;
+      }
+      if(balance_acc_mode[1] == true){
+        balance_acc_time[1]+=dt;
+        if(use_flywheel_st==false){
+          use_flywheel_st=true;
+        }
+      }else{
+        balance_acc_time[1]=0.0;
+        balance_acc(1)=0.0;
+      }
 
       // All state variables are foot_origin coords relative
       if (DEBUGP) {
@@ -1462,6 +1515,14 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
     bool is_root_rot_limit = false;
 
+    //this moment is generated from COM acceleration.
+    // this moment should be eliminated with change of angular momentum.
+    // so should be like this: new_refzmp_comp_moment-=balance_acc_moment
+    balance_acc_moment(1)=-balance_acc(0)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    balance_acc_moment(0)=balance_acc(1)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    new_refzmp_comp_moment(0) -= balance_acc_moment(0);
+    new_refzmp_comp_moment(1) -= balance_acc_moment(1);
+
     hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
     double chest_pitch_acc_comp = 0;
@@ -1492,6 +1553,18 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       is_root_rot_limit = is_root_rot_limit || (std::fabs(std::fabs(d_rpy[i]) - root_rot_compensation_limit[i] ) < 1e-5); // near the limit
     }
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
+
+    //acc
+    if( balance_acc_mode[0] == true){
+      balance_acc_vel[0] = balance_acc_vel[0] + balance_acc(0)*dt;
+      balance_acc_pos[0] = balance_acc_pos[0] + balance_acc_vel[0]*dt;
+    }else{
+      balance_acc_vel[0] -= balance_acc_vel[0]*0.2;
+      balance_acc_pos[0] -= balance_acc_pos[0]*0.02;
+    }
+    hrp::Vector3 balance_acc_comp(balance_acc_pos[0], 0, 0);
+    rel_cog = rel_cog+balance_acc_comp;
+
     m_robot->rootLink()->R = current_root_R;
     m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
       // This equation compensates the error of COM position due to rotation of the rootlink.

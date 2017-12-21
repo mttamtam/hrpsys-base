@@ -341,6 +341,12 @@ class Stabilizer
   hrp::Vector3 new_refzmp_comp_moment;
   hrp::Vector3 d_rpy_vel;
   hrp::Vector3 T_r1;
+
+  // balance acc
+  Eigen::Vector2d cp_error_thre_h, cp_error_thre_l;
+  Eigen::Vector2d balance_acc, balance_acc_const, balance_acc_moment;
+  std::vector<bool> balance_acc_mode;
+  std::vector<double> balance_acc_time, balance_acc_vel, balance_acc_pos;
 };
 
 
