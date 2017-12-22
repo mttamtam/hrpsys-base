@@ -423,7 +423,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   cp_error_thre_h = Eigen::Vector2d(0.05, 0.05);
   cp_error_thre_l = Eigen::Vector2d(0.03, 0.03);
   balance_acc = Eigen::Vector2d(0.0, 0.0);
-  balance_acc_const = Eigen::Vector2d(4.0, 4.0);
+  balance_acc_const = Eigen::Vector2d(2.0, 2.0);
   balance_acc_moment = Eigen::Vector2d(0.0, 0.0);
   balance_acc_mode.resize(2, false);
   balance_acc_time.resize(2, 0.0);
@@ -971,48 +971,30 @@ void Stabilizer::getActualParameters ()
         vlimit(new_refzmp_comp_moment, -600, 600);
       } else {
         use_flywheel_st = false;
+        new_refzmp_comp_moment = hrp::Vector3::Zero();
       }
       // for acc
       hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cp - act_cp - cp_offset); // copied from tmp_diff_cp
-      if (diff_cp(0) < -cp_error_thre_h(0)){ // act goes front of ref
-        balance_acc(0)=-balance_acc_const(0);
-        balance_acc_mode[0] = true;
-      }else if(diff_cp(0) > -cp_error_thre_l(0) && balance_acc_mode[0]){
-        balance_acc_mode[0] = false;
-      }else if(diff_cp(0) > cp_error_thre_h(0)){
-        balance_acc(0)=balance_acc_const(0);
-      }else if(diff_cp(0) < cp_error_thre_l(0) && balance_acc_mode[0]){
-        balance_acc_mode[0] = false;
-      }
-
-      if (diff_cp(1) < -cp_error_thre_h(1)){ // act goes left of ref
-        balance_acc(1)=-balance_acc_const(1);
-        balance_acc_mode[1] = true;
-      }else if(diff_cp(1) > -cp_error_thre_l(1) && balance_acc_mode[1]){
-        balance_acc_mode[1] = false;
-      }else if(diff_cp(1) > cp_error_thre_h(1)){
-        balance_acc(1)=balance_acc_const(1);
-      }else if(diff_cp(1) < cp_error_thre_l(1) && balance_acc_mode[1]){
-        balance_acc_mode[1] = false;
-      }
-
-      if(balance_acc_mode[0] == true){
-        balance_acc_time[0]+=dt;
-        if(use_flywheel_st==false){
-          use_flywheel_st=true;
+      for(size_t i=0; i<2; i++){// i 0:x-direction 1:y-direction
+        if (diff_cp(i) < -cp_error_thre_h(i)){ // act goes front of ref
+          balance_acc(i)=-balance_acc_const(i);
+          balance_acc_mode[i] = true;
+        }else if(diff_cp(i) > -cp_error_thre_l(i) && balance_acc_mode[i]){
+          balance_acc_mode[i] = false;
+        }else if(diff_cp(i) > cp_error_thre_h(i)){
+          balance_acc(i)=balance_acc_const(i);
+        }else if(diff_cp(i) < cp_error_thre_l(i) && balance_acc_mode[i]){
+          balance_acc_mode[i] = false;
         }
-      }else{
-        balance_acc_time[0]=0.0;
-        balance_acc(0)=0.0;
-      }
-      if(balance_acc_mode[1] == true){
-        balance_acc_time[1]+=dt;
-        if(use_flywheel_st==false){
-          use_flywheel_st=true;
+        if(balance_acc_mode[i] == true){
+          balance_acc_time[i]+=dt;
+          if(use_flywheel_st==false){
+            use_flywheel_st=true;
+          }
+        }else{
+          balance_acc_time[i]=0.0;
+          balance_acc(i)=0.0;
         }
-      }else{
-        balance_acc_time[1]=0.0;
-        balance_acc(1)=0.0;
       }
 
       // All state variables are foot_origin coords relative
@@ -1523,6 +1505,9 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     new_refzmp_comp_moment(0) -= balance_acc_moment(0);
     new_refzmp_comp_moment(1) -= balance_acc_moment(1);
 
+    std::cerr << "new_refzmp_comp_moment(0)" << new_refzmp_comp_moment(0) << '\n';
+    std::cerr << "new_refzmp_comp_moment(1)" << new_refzmp_comp_moment(1) << '\n';
+
     hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
     double chest_pitch_acc_comp = 0;
@@ -1555,14 +1540,16 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
 
     //acc
-    if( balance_acc_mode[0] == true){
-      balance_acc_vel[0] = balance_acc_vel[0] + balance_acc(0)*dt;
-      balance_acc_pos[0] = balance_acc_pos[0] + balance_acc_vel[0]*dt;
-    }else{
-      balance_acc_vel[0] -= balance_acc_vel[0]*0.2;
-      balance_acc_pos[0] -= balance_acc_pos[0]*0.02;
+    for(size_t i=0; i<2; i++){
+      if( balance_acc_mode[i] == true){
+        balance_acc_vel[i] = balance_acc_vel[i] + balance_acc(i)*dt;
+        balance_acc_pos[i] = balance_acc_pos[i] + balance_acc_vel[i]*dt;
+      }else{
+        balance_acc_vel[i] -= balance_acc_vel[i]*0.2;
+        balance_acc_pos[i] -= balance_acc_pos[i]*0.02;
+      }
     }
-    hrp::Vector3 balance_acc_comp(balance_acc_pos[0], 0, 0);
+    hrp::Vector3 balance_acc_comp(balance_acc_pos[0], balance_acc_pos[1], 0);
     rel_cog = rel_cog+balance_acc_comp;
 
     m_robot->rootLink()->R = current_root_R;
