@@ -420,15 +420,20 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-20), deg2rad(20), deg2rad(-20), deg2rad(20));
 
   // parameters for balance acc
-  cp_error_thre_h = Eigen::Vector2d(0.05, 0.05);
-  cp_error_thre_l = Eigen::Vector2d(0.03, 0.03);
+  // cp_error_thre_h = Eigen::Vector2d(0.08, 0.08);
+  // cp_error_thre_l = Eigen::Vector2d(0.05, 0.05);
+  cp_error_thre_h = Eigen::Vector2d(0.06, 0.06);
+  cp_error_thre_l = Eigen::Vector2d(0.04, 0.04);
+  // cp_error_thre_h = Eigen::Vector2d(0.04, 0.04);
+  // cp_error_thre_l = Eigen::Vector2d(0.025, 0.025);
   balance_acc = Eigen::Vector2d(0.0, 0.0);
-  balance_acc_const = Eigen::Vector2d(2.0, 2.0);
+  balance_acc_const = Eigen::Vector2d(1.0, 1.0);
   balance_acc_moment = Eigen::Vector2d(0.0, 0.0);
   balance_acc_mode.resize(2, false);
   balance_acc_time.resize(2, 0.0);
   balance_acc_vel.resize(2, 0.0);
   balance_acc_pos.resize(2, 0.0);
+  balance_acc_pos_limit.resize(2, 0.08);
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -967,34 +972,37 @@ void Stabilizer::getActualParameters ()
         act_zmp_diff.head(2) = (act_zmp.head(2) - tmp_act_zmp);
         use_flywheel_st = true;
         new_refzmp_comp.head(2) = std::fabs((new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2))) / act_zmp_diff.head(2).norm() * act_zmp_diff.head(2).normalized();
-        new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
-        vlimit(new_refzmp_comp_moment, -600, 600);
+        flywheel_balance_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
+        vlimit(flywheel_balance_moment, -300, 300);
       } else {
         use_flywheel_st = false;
-        new_refzmp_comp_moment = hrp::Vector3::Zero();
+        flywheel_balance_moment = hrp::Vector3::Zero();
       }
       // for acc
       hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cp - act_cp - cp_offset); // copied from tmp_diff_cp
+      // hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cog - act_cog); // copied from tmp_diff_cp
       for(size_t i=0; i<2; i++){// i 0:x-direction 1:y-direction
         if (diff_cp(i) < -cp_error_thre_h(i)){ // act goes front of ref
           balance_acc(i)=-balance_acc_const(i);
           balance_acc_mode[i] = true;
-        }else if(diff_cp(i) > -cp_error_thre_l(i) && balance_acc_mode[i]){
+        }else if(diff_cp(i) < 0.0 && diff_cp(i) > -cp_error_thre_l(i) && balance_acc_mode[i]){
           balance_acc_mode[i] = false;
         }else if(diff_cp(i) > cp_error_thre_h(i)){
           balance_acc(i)=balance_acc_const(i);
-        }else if(diff_cp(i) < cp_error_thre_l(i) && balance_acc_mode[i]){
+          balance_acc_mode[i] = true;
+        }else if(diff_cp(i) > 0.0 && diff_cp(i) < cp_error_thre_l(i) && balance_acc_mode[i]){
           balance_acc_mode[i] = false;
         }
         if(balance_acc_mode[i] == true){
           balance_acc_time[i]+=dt;
           if(use_flywheel_st==false){
-            use_flywheel_st=true;
+            // use_flywheel_st=true;
           }
         }else{
           balance_acc_time[i]=0.0;
           balance_acc(i)=0.0;
         }
+        std::cerr << i << ": diff_cp=" << diff_cp(i) << "\tbalance_acc_mode=" << balance_acc_mode[i] << "\t balance_acc=" << balance_acc(i) << '\n';
       }
 
       // All state variables are foot_origin coords relative
@@ -1499,14 +1507,19 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
 
     //this moment is generated from COM acceleration.
     // this moment should be eliminated with change of angular momentum.
-    // so should be like this: new_refzmp_comp_moment-=balance_acc_moment
-    balance_acc_moment(1)=-balance_acc(0)*total_mass*(rel_cog(2)-rel_act_zmp(2));
-    balance_acc_moment(0)=balance_acc(1)*total_mass*(rel_cog(2)-rel_act_zmp(2));
-    new_refzmp_comp_moment(0) -= balance_acc_moment(0);
-    new_refzmp_comp_moment(1) -= balance_acc_moment(1);
-
-    std::cerr << "new_refzmp_comp_moment(0)" << new_refzmp_comp_moment(0) << '\n';
-    std::cerr << "new_refzmp_comp_moment(1)" << new_refzmp_comp_moment(1) << '\n';
+    // so should be like this: flywheel_balance_moment-=balance_acc_moment
+    // balance_acc_moment(1)=-balance_acc(0)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    // balance_acc_moment(0)=balance_acc(1)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    balance_acc_moment(1)=-balance_acc(0)*total_mass*(act_cog(2)-act_zmp(2));
+    balance_acc_moment(0)=balance_acc(1)*total_mass*(act_cog(2)-act_zmp(2));
+    flywheel_balance_moment(0) += balance_acc_moment(0);
+    flywheel_balance_moment(1) += balance_acc_moment(1);
+    std::cerr << "rel_cog(2)-rel_act_zmp(2) = " << rel_cog(2)-rel_act_zmp(2) << '\n';
+    std::cerr << "act_cog(2)-act_zmp(2) = " << act_cog(2) - act_zmp(2) << '\n';
+    std::cerr << "balance_acc_moment(0)" << balance_acc_moment(0) << '\n';
+    std::cerr << "balance_acc_moment(1)" << balance_acc_moment(1) << '\n';
+    std::cerr << "flywheel_balance_moment(0)" << flywheel_balance_moment(0) << '\n';
+    std::cerr << "flywheel_balance_moment(1)" << flywheel_balance_moment(1) << '\n';
 
     hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
     hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
@@ -1517,7 +1530,7 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       m_robot->calcCM();
       m_robot->rootLink()->calcSubMassCM();
       m_robot->rootLink()->calcSubMassInertia(I);
-      d_rpy_acc_comp = I.inverse() * new_refzmp_comp_moment;
+      d_rpy_acc_comp = I.inverse() * flywheel_balance_moment;
       for (size_t i = 0; i < 2; i++) {
         if (d_rpy_acc_comp(i)!=0){
           double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
@@ -1550,10 +1563,12 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       }
     }
     hrp::Vector3 balance_acc_comp(balance_acc_pos[0], balance_acc_pos[1], 0);
-    rel_cog = rel_cog+balance_acc_comp;
+    // rel_cog = rel_cog+balance_acc_comp;
 
     m_robot->rootLink()->R = current_root_R;
-    m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
+    // m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
+    // TODO: calculate appropreate rotation of balance_acc_comp
+    m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog + balance_acc_comp;
       // This equation compensates the error of COM position due to rotation of the rootlink.
       // It approximates the change of COM position as change of rootlink position because resolved momentum control is not available.
     m_robot->calcForwardKinematics();
