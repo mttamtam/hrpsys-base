@@ -417,7 +417,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for COM flywhell st
   com_flywheel_st_mode = true;
-  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-5), deg2rad(5), deg2rad(-20), deg2rad(20));
+  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-20), deg2rad(20), deg2rad(-20), deg2rad(20));
 
   // parameters for RUNST
   double ke = 0, tc = 0;
@@ -957,7 +957,7 @@ void Stabilizer::getActualParameters ()
         use_flywheel_st = true;
         new_refzmp_comp.head(2) = std::fabs((new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2))) / act_zmp_diff.head(2).norm() * act_zmp_diff.head(2).normalized();
         new_refzmp_comp_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
-        vlimit(new_refzmp_comp_moment, -600, 600);
+        vlimit(new_refzmp_comp_moment, -300, 300);
       } else {
         use_flywheel_st = false;
       }
