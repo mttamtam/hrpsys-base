@@ -958,6 +958,7 @@ void Stabilizer::getActualParameters ()
 
 
       //for compensation of new ref zmp
+      /*
       Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
       Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
       SimpleZMPDistributor::leg_type support_leg;
@@ -978,6 +979,7 @@ void Stabilizer::getActualParameters ()
         use_flywheel_st = false;
         flywheel_balance_moment = hrp::Vector3::Zero();
       }
+      */
       // for acc
       hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cp - act_cp - cp_offset); // copied from tmp_diff_cp
       // hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cog - act_cog); // copied from tmp_diff_cp
@@ -996,13 +998,27 @@ void Stabilizer::getActualParameters ()
         if(balance_acc_mode[i] == true){
           balance_acc_time[i]+=dt;
           if(use_flywheel_st==false){
-            // use_flywheel_st=true;
+            use_flywheel_st=true;
           }
+          // new_refzmp_comp.head(2) = (ref_zmp - act_zmp).head(2);
         }else{
           balance_acc_time[i]=0.0;
           balance_acc(i)=0.0;
         }
         std::cerr << i << ": diff_cp=" << diff_cp(i) << "\tbalance_acc_mode=" << balance_acc_mode[i] << "\t balance_acc=" << balance_acc(i) << '\n';
+      }
+
+      if (balance_acc_mode[0] == true){
+        double flywheel_balance_comp =new_refzmp(0) - act_zmp(0);
+        flywheel_balance_moment(1) = eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+      }else{
+        flywheel_balance_moment(1) = 0;
+      }
+      if (balance_acc_mode[1] == true){
+        double flywheel_balance_comp =new_refzmp(1) - act_zmp(1);
+        flywheel_balance_moment(0) = -eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+      }else{
+        flywheel_balance_moment(0) = 0;
       }
 
       // All state variables are foot_origin coords relative
@@ -1541,8 +1557,12 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     for (size_t i = 0; i < 2; i++) {
       // rpy vel update
       d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
-      if (use_flywheel_st && T_r1(i) > dt && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
+      if (use_flywheel_st /*&& T_r1(i) > dt*/ && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
       else d_rpy_vel(i) = d_rpy_vel_st(i);
+      if (std::fabs(d_rpy_vel(i))> max_d_rpy_vel(i)){
+        max_d_rpy_vel(i) = std::fabs(d_rpy_vel(i));
+      }
+      std::cerr << "max_d_rpy_vel(" << i << ")=" << max_d_rpy_vel(i) << '\n';
       // rpy update
       d_rpy[i] += d_rpy_vel(i) * dt;
 

@@ -339,7 +339,7 @@ class Stabilizer
   bool use_flywheel_st;
   Eigen::Vector4d flywheel_rpy_limit;
   hrp::Vector3 flywheel_balance_moment;
-  hrp::Vector3 d_rpy_vel;
+  hrp::Vector3 d_rpy_vel, max_d_rpy_vel, d_rpy_prev;
   hrp::Vector3 T_r1;
 
   // balance acc
