@@ -427,7 +427,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   // cp_error_thre_h = Eigen::Vector2d(0.04, 0.04);
   // cp_error_thre_l = Eigen::Vector2d(0.025, 0.025);
   balance_acc = Eigen::Vector2d(0.0, 0.0);
-  balance_acc_const = Eigen::Vector2d(1.0, 1.0);
+  balance_acc_const = Eigen::Vector2d(0.5, 0.5);
   balance_acc_moment = Eigen::Vector2d(0.0, 0.0);
   balance_acc_mode.resize(2, false);
   balance_acc_time.resize(2, 0.0);
@@ -1002,6 +1002,7 @@ void Stabilizer::getActualParameters ()
           }
           // new_refzmp_comp.head(2) = (ref_zmp - act_zmp).head(2);
         }else{
+          use_flywheel_st==false;
           balance_acc_time[i]=0.0;
           balance_acc(i)=0.0;
         }
@@ -1010,16 +1011,17 @@ void Stabilizer::getActualParameters ()
 
       if (balance_acc_mode[0] == true){
         double flywheel_balance_comp =new_refzmp(0) - act_zmp(0);
-        flywheel_balance_moment(1) = eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+        flywheel_balance_moment(1) = -eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
       }else{
         flywheel_balance_moment(1) = 0;
       }
       if (balance_acc_mode[1] == true){
         double flywheel_balance_comp =new_refzmp(1) - act_zmp(1);
-        flywheel_balance_moment(0) = -eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+        flywheel_balance_moment(0) = eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
       }else{
         flywheel_balance_moment(0) = 0;
       }
+      vlimit(flywheel_balance_moment, -300, 300);
 
       // All state variables are foot_origin coords relative
       if (DEBUGP) {
@@ -1559,10 +1561,7 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
       if (use_flywheel_st /*&& T_r1(i) > dt*/ && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
       else d_rpy_vel(i) = d_rpy_vel_st(i);
-      if (std::fabs(d_rpy_vel(i))> max_d_rpy_vel(i)){
-        max_d_rpy_vel(i) = std::fabs(d_rpy_vel(i));
-      }
-      std::cerr << "max_d_rpy_vel(" << i << ")=" << max_d_rpy_vel(i) << '\n';
+
       // rpy update
       d_rpy[i] += d_rpy_vel(i) * dt;
 
@@ -1593,6 +1592,14 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
       // It approximates the change of COM position as change of rootlink position because resolved momentum control is not available.
     m_robot->calcForwardKinematics();
     current_base_rpy = hrp::rpyFromRot(m_robot->rootLink()->R);
+
+    for(size_t i=0; i < 2; i++){
+      if (std::fabs(current_base_rpy(i))> max_d_rpy_vel(i)){
+        max_d_rpy_vel(i) = std::fabs(current_base_rpy(i));
+      }
+      std::cerr << "max_current_base_rpy(" << i << ")=" << max_d_rpy_vel(i) << '\n';
+    }
+
     current_base_pos = m_robot->rootLink()->p;
     if ( DEBUGP || (is_root_rot_limit && loop%200==0) ) {
         std::cerr << "[" << m_profile.instance_name << "] Root rot control" << std::endl;
