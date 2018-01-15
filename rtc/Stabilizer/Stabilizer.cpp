@@ -118,7 +118,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   // <rtc-template block="bind_config">
   // Bind variables and configuration variable
   bindParameter("debugLevel", m_debugLevel, "0");
-  
+
   // </rtc-template>
 
   // Registration: InPort/OutPort/Service
@@ -162,15 +162,15 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   addOutPort("allRefWrench", m_allRefWrenchOut);
   addOutPort("allEEComp", m_allEECompOut);
   addOutPort("debugData", m_debugDataOut);
-  
+
   // Set service provider to Ports
   m_StabilizerServicePort.registerProvider("service0", "StabilizerService", m_service0);
-  
+
   // Set service consumers to Ports
-  
+
   // Set CORBA Service Ports
   addPort(m_StabilizerServicePort);
-  
+
   // </rtc-template>
   RTC::Properties& prop = getProperties();
   coil::stringTo(dt, prop["dt"].c_str());
@@ -187,7 +187,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
 
   // parameters for internal robot model
   m_robot = hrp::BodyPtr(new hrp::Body());
-  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(), 
+  if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(),
                                CosNaming::NamingContext::_duplicate(naming.getRootContext())
                                )){
     std::cerr << "[" << m_profile.instance_name << "]failed to load model[" << prop["model"] << "]" << std::endl;
@@ -1649,12 +1649,20 @@ void Stabilizer::calcEEForceMomentControl() {
       ////////// sample fly wheel control ///////////
       static hrp::Vector3 com_am_tmp = hrp::Vector3::Zero(),  com_am_lpf = hrp::Vector3::Zero();//角運動量とそのローパスフィルタ版
       hrp::Vector3 com_dam;//角運動量変化分
-      hrp::Vector3 zmp_diff = act_zmp - ref_zmp;
-      if(zmp_diff.norm() > 0.2){ zmp_diff = zmp_diff.normalized() * 0.2; }
-      else if(zmp_diff.norm() < 0.05){ zmp_diff.fill(0); com_am_tmp *= 0.99;}
-      com_dam(0) = -zmp_diff(1) * m_robot->totalMass() * 9.8;
-      com_dam(1) = +zmp_diff(0) * m_robot->totalMass() * 9.8;
-      com_dam(2) = 0;
+      hrp::Vector3 zmp_diff = act_zmp - new_refzmp;
+      // if(zmp_diff.norm() > 0.2){ zmp_diff = zmp_diff.normalized() * 0.2; }
+      // else if(zmp_diff.norm() < 0.05){ zmp_diff.fill(0); com_am_tmp *= 0.99;}
+      hrp::Vector3 diff_cp = ref_foot_origin_rot*(ref_cp - act_cp - cp_offset);
+      if(diff_cp.norm() > 0.08){
+        if(zmp_diff.norm() > 0.2){ zmp_diff = zmp_diff.normalized() * 0.2; }
+
+        com_dam(0) = -zmp_diff(1) * m_robot->totalMass() * 9.8;
+        com_dam(1) = +zmp_diff(0) * m_robot->totalMass() * 9.8;
+        com_dam(2) = 0;
+      }else{
+        com_am_tmp*=0.99;
+        com_dam=hrp::Vector3::Zero();
+      }
       com_am_tmp += com_dam * dt;
       if(com_am_tmp.norm() > 10){ com_am_tmp = com_am_tmp.normalized() * 10; }//最大発揮角運動量を頭打ち
       com_am_lpf = com_am_lpf * 0.999 + com_am_tmp * 0.001;
@@ -2922,5 +2930,3 @@ extern "C"
   }
 
 };
-
-
