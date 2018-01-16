@@ -1,23 +1,23 @@
 // -*- C++ -*-
 /*!
- * @file  AccelerationChecker.h
- * @brief joint acceleration checker
+ * @file  CameraImageSaver.h
+ * @brief camera image saver
  * @date  $Date$
  *
  * $Id$
  */
 
-#ifndef ACCELERATION_CHECKER_H
-#define ACCELERATION_CHECKER_H
+#ifndef CAMERA_IMAGE_SAVER_H
+#define CAMERA_IMAGE_SAVER_H
 
 #include <rtm/idl/BasicDataType.hh>
+#include "hrpsys/idl/Img.hh"
 #include <rtm/Manager.h>
 #include <rtm/DataFlowComponentBase.h>
 #include <rtm/CorbaPort.h>
 #include <rtm/DataInPort.h>
 #include <rtm/DataOutPort.h>
 #include <rtm/idl/BasicDataTypeSkel.h>
-#include <hrpsys/idl/HRPDataTypes.hh>
 
 // Service implementation headers
 // <rtc-template block="service_impl_h">
@@ -34,7 +34,7 @@ using namespace RTC;
 /**
    \brief sample RT component which has one data input port and one data output port
  */
-class AccelerationChecker
+class CameraImageSaver
   : public RTC::DataFlowComponentBase
 {
  public:
@@ -42,11 +42,11 @@ class AccelerationChecker
      \brief Constructor
      \param manager pointer to the Manager
   */
-  AccelerationChecker(RTC::Manager* manager);
+  CameraImageSaver(RTC::Manager* manager);
   /**
      \brief Destructor
   */
-  virtual ~AccelerationChecker();
+  virtual ~CameraImageSaver();
 
   // The initialize action (on CREATED->ALIVE transition)
   // formaer rtc_init_entry()
@@ -103,19 +103,16 @@ class AccelerationChecker
   
   // </rtc-template>
 
-  TimedDoubleSeq m_q;
-  OpenHRP::TimedLongSeqSeq m_servoState;
+  Img::TimedCameraImage m_image;
 
   // DataInPort declaration
   // <rtc-template block="inport_declare">
-  InPort<TimedDoubleSeq> m_qIn;
-  InPort<OpenHRP::TimedLongSeqSeq> m_servoStateIn;
+  InPort<Img::TimedCameraImage> m_imageIn;
   
   // </rtc-template>
 
   // DataOutPort declaration
   // <rtc-template block="outport_declare">
-  OutPort<TimedDoubleSeq> m_qOut;
   
   // </rtc-template>
 
@@ -135,17 +132,15 @@ class AccelerationChecker
   // </rtc-template>
 
  private:
-  TimedDoubleSeq m_dq, m_qOld, m_dqOld, m_ddqMax;
-  double m_thd;
-  double m_dt;
-  bool m_print;
+  std::string m_basename;
+  int m_count;
   int dummy;
 };
 
 
 extern "C"
 {
-  void AccelerationCheckerInit(RTC::Manager* manager);
+  void CameraImageSaverInit(RTC::Manager* manager);
 };
 
-#endif // ACCELERATION_CHECKER_H
+#endif // CAMERA_IMAGE_SAVER_H

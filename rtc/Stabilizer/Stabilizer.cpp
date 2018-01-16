@@ -439,6 +439,26 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
     prev_d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
   }
 
+  // parameters for COM flywhell st
+  com_flywheel_st_mode = true;
+  flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-20), deg2rad(20), deg2rad(-20), deg2rad(20));
+
+  // parameters for balance acc
+  // cp_error_thre_h = Eigen::Vector2d(0.08, 0.08);
+  // cp_error_thre_l = Eigen::Vector2d(0.05, 0.05);
+  cp_error_thre_h = Eigen::Vector2d(0.06, 0.06);
+  cp_error_thre_l = Eigen::Vector2d(0.04, 0.04);
+  // cp_error_thre_h = Eigen::Vector2d(0.04, 0.04);
+  // cp_error_thre_l = Eigen::Vector2d(0.025, 0.025);
+  balance_acc = Eigen::Vector2d(0.0, 0.0);
+  balance_acc_const = Eigen::Vector2d(0.5, 0.5);
+  balance_acc_moment = Eigen::Vector2d(0.0, 0.0);
+  balance_acc_mode.resize(2, false);
+  balance_acc_time.resize(2, 0.0);
+  balance_acc_vel.resize(2, 0.0);
+  balance_acc_pos.resize(2, 0.0);
+  balance_acc_pos_limit.resize(2, 0.08);
+
   // parameters for RUNST
   double ke = 0, tc = 0;
   for (int i = 0; i < 2; i++) {
@@ -974,6 +994,73 @@ void Stabilizer::getActualParameters ()
           acp_list.push_back(adaptive_contact_parameters[i]);
       }
 
+
+      //for compensation of new ref zmp
+      /*
+      Eigen::Vector2d tmp_new_refzmp(new_refzmp.head(2));
+      Eigen::Vector2d tmp_act_zmp(act_zmp.head(2));
+      SimpleZMPDistributor::leg_type support_leg;
+      std::vector<double> zmp_check_margin(4, 0.03);
+      szd->set_vertices_from_margin_params(zmp_check_margin);
+      szd->get_margined_vertices(margined_support_polygon_vetices);
+      szd->calc_convex_hull(margined_support_polygon_vetices, act_contact_states, ee_pos, ee_rot);
+      if (!szd->is_inside_support_polygon(tmp_act_zmp, hrp::Vector3::Zero(), true, std::string(m_profile.instance_name)) && com_flywheel_st_mode){
+      // if(com_flywheel_st_mode){
+        hrp::Vector3 new_refzmp_comp = hrp::Vector3::Zero();
+        hrp::Vector3 act_zmp_diff = hrp::Vector3::Zero();
+        act_zmp_diff.head(2) = (act_zmp.head(2) - tmp_act_zmp);
+        use_flywheel_st = true;
+        new_refzmp_comp.head(2) = std::fabs((new_refzmp - ref_zmp).head(2).dot(act_zmp_diff.head(2))) / act_zmp_diff.head(2).norm() * act_zmp_diff.head(2).normalized();
+        flywheel_balance_moment = eefm_gravitational_acceleration * total_mass * hrp::Vector3(-new_refzmp_comp(1), new_refzmp_comp(0), 0);
+        vlimit(flywheel_balance_moment, -300, 300);
+      } else {
+        use_flywheel_st = false;
+        flywheel_balance_moment = hrp::Vector3::Zero();
+      }
+      */
+      // for acc
+      hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cp - act_cp - cp_offset); // copied from tmp_diff_cp
+      // hrp::Vector3 diff_cp = ref_foot_origin_rot * (ref_cog - act_cog); // copied from tmp_diff_cp
+      for(size_t i=0; i<2; i++){// i 0:x-direction 1:y-direction
+        if (diff_cp(i) < -cp_error_thre_h(i)){ // act goes front of ref
+          balance_acc(i)=-balance_acc_const(i);
+          balance_acc_mode[i] = true;
+        }else if(diff_cp(i) < 0.0 && diff_cp(i) > -cp_error_thre_l(i) && balance_acc_mode[i]){
+          balance_acc_mode[i] = false;
+        }else if(diff_cp(i) > cp_error_thre_h(i)){
+          balance_acc(i)=balance_acc_const(i);
+          balance_acc_mode[i] = true;
+        }else if(diff_cp(i) > 0.0 && diff_cp(i) < cp_error_thre_l(i) && balance_acc_mode[i]){
+          balance_acc_mode[i] = false;
+        }
+        if(balance_acc_mode[i] == true){
+          balance_acc_time[i]+=dt;
+          if(use_flywheel_st==false){
+            use_flywheel_st=true;
+          }
+          // new_refzmp_comp.head(2) = (ref_zmp - act_zmp).head(2);
+        }else{
+          use_flywheel_st==false;
+          balance_acc_time[i]=0.0;
+          balance_acc(i)=0.0;
+        }
+        std::cerr << i << ": diff_cp=" << diff_cp(i) << "\tbalance_acc_mode=" << balance_acc_mode[i] << "\t balance_acc=" << balance_acc(i) << '\n';
+      }
+
+      if (balance_acc_mode[0] == true){
+        double flywheel_balance_comp =new_refzmp(0) - act_zmp(0);
+        flywheel_balance_moment(1) = -eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+      }else{
+        flywheel_balance_moment(1) = 0;
+      }
+      if (balance_acc_mode[1] == true){
+        double flywheel_balance_comp =new_refzmp(1) - act_zmp(1);
+        flywheel_balance_moment(0) = eefm_gravitational_acceleration * total_mass * flywheel_balance_comp;
+      }else{
+        flywheel_balance_moment(0) = 0;
+      }
+      vlimit(flywheel_balance_moment, -300, 300);
+
       // All state variables are foot_origin coords relative
       if (DEBUGP) {
           std::cerr << "[" << m_profile.instance_name << "] ee values" << std::endl;
@@ -1113,6 +1200,7 @@ void Stabilizer::getActualParameters ()
       hrp::Vector3 f_diff(hrp::Vector3::Zero());
       std::vector<bool> large_swing_f_diff(3, false);
       // moment control
+      act_total_foot_origin_moment = hrp::Vector3::Zero();
       for (size_t i = 0; i < stikp.size(); i++) {
         STIKParam& ikp = stikp[i];
         std::vector<bool> large_swing_m_diff(3, false);
@@ -1178,7 +1266,10 @@ void Stabilizer::getActualParameters ()
             projected_normal.at(i) = plane_x.dot(normal_vector) * plane_x + plane_y.dot(normal_vector) * plane_y;
             act_force.at(i) = sensor_force;
         }
+        //act_total_foot_origin_moment += (target->R * ikp.localCOPPos + target->p).cross(sensor_force) + ee_moment;
+        act_total_foot_origin_moment += (target->R * ikp.localp + target->p - foot_origin_pos).cross(sensor_force) + ee_moment;
       }
+      act_total_foot_origin_moment = foot_origin_rot.transpose() * act_total_foot_origin_moment;
 
       if (eefm_use_force_difference_control) {
           // fxyz control
@@ -1304,6 +1395,9 @@ void Stabilizer::getTargetParameters ()
   m_robot->rootLink()->R = target_root_R;
   m_robot->calcForwardKinematics();
   ref_zmp = m_robot->rootLink()->R * hrp::Vector3(m_zmpRef.data.x, m_zmpRef.data.y, m_zmpRef.data.z) + m_robot->rootLink()->p; // base frame -> world frame
+  hrp::Vector3 foot_origin_pos;
+  hrp::Matrix33 foot_origin_rot;
+  calcFootOriginCoords (foot_origin_pos, foot_origin_rot);
   if (st_algorithm != OpenHRP::StabilizerService::TPCC) {
     // apply inverse system
     hrp::Vector3 tmp_ref_zmp = ref_zmp + eefm_zmp_delay_time_const[0] * (ref_zmp - prev_ref_zmp) / dt;
@@ -1313,6 +1407,7 @@ void Stabilizer::getTargetParameters ()
   ref_cog = m_robot->calcCM();
   ref_total_force = hrp::Vector3::Zero();
   ref_total_moment = hrp::Vector3::Zero(); // Total moment around reference ZMP tmp
+  ref_total_foot_origin_moment = hrp::Vector3::Zero();
   for (size_t i = 0; i < stikp.size(); i++) {
     hrp::Link* target = m_robot->link(stikp[i].target_name);
     //target_ee_p[i] = target->p + target->R * stikp[i].localCOPPos;
@@ -1326,6 +1421,9 @@ void Stabilizer::getTargetParameters ()
     // Force/moment control
     // ref_total_moment += (target_ee_p[i]-ref_zmp).cross(hrp::Vector3(m_ref_wrenches[i].data[0], m_ref_wrenches[i].data[1], m_ref_wrenches[i].data[2]))
     //     + hrp::Vector3(m_ref_wrenches[i].data[3], m_ref_wrenches[i].data[4], m_ref_wrenches[i].data[5]);
+    if (is_feedback_control_enable[i]) {
+        ref_total_foot_origin_moment += (target_ee_p[i]-foot_origin_pos).cross(ref_force[i]) + ref_moment[i];
+    }
   }
   // <= Reference world frame
 
@@ -1337,9 +1435,6 @@ void Stabilizer::getTargetParameters ()
 
   if (st_algorithm != OpenHRP::StabilizerService::TPCC) {
     // Reference foot_origin frame =>
-    hrp::Vector3 foot_origin_pos;
-    hrp::Matrix33 foot_origin_rot;
-    calcFootOriginCoords (foot_origin_pos, foot_origin_rot);
     // initialize for new_refzmp
     new_refzmp = ref_zmp;
     rel_cog = m_robot->rootLink()->R.transpose() * (ref_cog-m_robot->rootLink()->p);
@@ -1362,6 +1457,7 @@ void Stabilizer::getTargetParameters ()
       ref_force[i] = foot_origin_rot.transpose() * ref_force[i];
       ref_moment[i] = foot_origin_rot.transpose() * ref_moment[i];
     }
+    ref_total_foot_origin_moment = foot_origin_rot.transpose() * ref_total_foot_origin_moment;
     ref_total_force = foot_origin_rot.transpose() * ref_total_force;
     ref_total_moment = foot_origin_rot.transpose() * ref_total_moment;
     target_foot_origin_rot = foot_origin_rot;
@@ -1570,16 +1666,84 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
     //   Basically Equation (1) and (2) in the paper [1]
     hrp::Vector3 ref_root_rpy = hrp::rpyFromRot(target_root_R);
     bool is_root_rot_limit = false;
+
+    //this moment is generated from COM acceleration.
+    // this moment should be eliminated with change of angular momentum.
+    // so should be like this: flywheel_balance_moment-=balance_acc_moment
+    // balance_acc_moment(1)=-balance_acc(0)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    // balance_acc_moment(0)=balance_acc(1)*total_mass*(rel_cog(2)-rel_act_zmp(2));
+    balance_acc_moment(1)=-balance_acc(0)*total_mass*(act_cog(2)-act_zmp(2));
+    balance_acc_moment(0)=balance_acc(1)*total_mass*(act_cog(2)-act_zmp(2));
+    flywheel_balance_moment(0) += balance_acc_moment(0);
+    flywheel_balance_moment(1) += balance_acc_moment(1);
+    std::cerr << "rel_cog(2)-rel_act_zmp(2) = " << rel_cog(2)-rel_act_zmp(2) << '\n';
+    std::cerr << "act_cog(2)-act_zmp(2) = " << act_cog(2) - act_zmp(2) << '\n';
+    std::cerr << "balance_acc_moment(0)" << balance_acc_moment(0) << '\n';
+    std::cerr << "balance_acc_moment(1)" << balance_acc_moment(1) << '\n';
+    std::cerr << "flywheel_balance_moment(0)" << flywheel_balance_moment(0) << '\n';
+    std::cerr << "flywheel_balance_moment(1)" << flywheel_balance_moment(1) << '\n';
+
+    hrp::Vector3 d_rpy_acc_comp = hrp::Vector3::Zero();
+    hrp::Vector3 d_rpy_vel_st = hrp::Vector3::Zero();
+    double chest_pitch_acc_comp = 0;
+    if (use_flywheel_st) {
+      hrp::Matrix33 I;
+      m_robot->calcForwardKinematics(true);
+      m_robot->calcCM();
+      m_robot->rootLink()->calcSubMassCM();
+      m_robot->rootLink()->calcSubMassInertia(I);
+      d_rpy_acc_comp = I.inverse() * flywheel_balance_moment;
+      for (size_t i = 0; i < 2; i++) {
+        if (d_rpy_acc_comp(i)!=0){
+          double j(d_rpy_acc_comp(i) > 0 ? 1.0 : 0.0);
+          T_r1(i) = std::sqrt((flywheel_rpy_limit(2.0*i+j) - current_base_rpy[i])/d_rpy_acc_comp(i)) - d_rpy_vel(i)/d_rpy_acc_comp(i);
+        }
+      }
+    }
     for (size_t i = 0; i < 2; i++) {
-        d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
-        d_rpy[i] = vlimit(d_rpy[i], -1 * root_rot_compensation_limit[i], root_rot_compensation_limit[i]);
-        is_root_rot_limit = is_root_rot_limit || (std::fabs(std::fabs(d_rpy[i]) - root_rot_compensation_limit[i] ) < 1e-5); // near the limit
+      // rpy vel update
+      d_rpy_vel_st(i) = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]);
+      if (use_flywheel_st /*&& T_r1(i) > dt*/ && is_emergency) d_rpy_vel(i) += d_rpy_acc_comp(i) * dt;
+      else d_rpy_vel(i) = d_rpy_vel_st(i);
+
+      // rpy update
+      d_rpy[i] += d_rpy_vel(i) * dt;
+
+      // d_rpy[i] = transition_smooth_gain * (eefm_body_attitude_control_gain[i] * (ref_root_rpy(i) - act_base_rpy(i)) - 1/eefm_body_attitude_control_time_const[i] * d_rpy[i]) * dt + d_rpy[i];
+      d_rpy[i] = vlimit(d_rpy[i], -1 * root_rot_compensation_limit[i], root_rot_compensation_limit[i]);
+      is_root_rot_limit = is_root_rot_limit || (std::fabs(std::fabs(d_rpy[i]) - root_rot_compensation_limit[i] ) < 1e-5); // near the limit
     }
     rats::rotm3times(current_root_R, target_root_R, hrp::rotFromRpy(d_rpy[0], d_rpy[1], 0));
+
+    //acc
+    for(size_t i=0; i<2; i++){
+      if( balance_acc_mode[i] == true){
+        balance_acc_vel[i] = balance_acc_vel[i] + balance_acc(i)*dt;
+        balance_acc_pos[i] = balance_acc_pos[i] + balance_acc_vel[i]*dt;
+      }else{
+        balance_acc_vel[i] -= balance_acc_vel[i]*0.2;
+        balance_acc_pos[i] -= balance_acc_pos[i]*0.002;
+      }
+    }
+    hrp::Vector3 balance_acc_comp(balance_acc_pos[0], balance_acc_pos[1], 0);
+    // rel_cog = rel_cog+balance_acc_comp;
+
     m_robot->rootLink()->R = current_root_R;
-    m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
+    // m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog;
+    // TODO: calculate appropreate rotation of balance_acc_comp
+    m_robot->rootLink()->p = target_root_p + target_root_R * rel_cog - current_root_R * rel_cog + balance_acc_comp;
+      // This equation compensates the error of COM position due to rotation of the rootlink.
+      // It approximates the change of COM position as change of rootlink position because resolved momentum control is not available.
     m_robot->calcForwardKinematics();
     current_base_rpy = hrp::rpyFromRot(m_robot->rootLink()->R);
+
+    for(size_t i=0; i < 2; i++){
+      if (std::fabs(current_base_rpy(i))> max_d_rpy_vel(i)){
+        max_d_rpy_vel(i) = std::fabs(current_base_rpy(i));
+      }
+      std::cerr << "max_current_base_rpy(" << i << ")=" << max_d_rpy_vel(i) << '\n';
+    }
+
     current_base_pos = m_robot->rootLink()->p;
     if ( DEBUGP || (is_root_rot_limit && loop%200==0) ) {
         std::cerr << "[" << m_profile.instance_name << "] Root rot control" << std::endl;
@@ -1891,24 +2055,12 @@ void Stabilizer::calcDiffFootOriginExtMoment ()
     // calc reference ext moment around foot origin pos
     // static const double grav = 9.80665; /* [m/s^2] */
     double mg = total_mass * eefm_gravitational_acceleration;
-    hrp::Vector3 ref_env_force = hrp::Vector3::Zero();
-    for (size_t ii = 0; ii < stikp.size(); ii++) {
-        if (std::string(stikp[ii].ee_name).find("leg") != std::string::npos) { // TODO
-            ref_env_force += hrp::Vector3(m_ref_wrenches[ii].data[0], m_ref_wrenches[ii].data[1], m_ref_wrenches[ii].data[2]);
-        }
-    }
-    hrp::Vector3 ref_ext_moment = hrp::Vector3(ref_env_force(1) * ref_zmp(2) - ref_env_force(2) * ref_zmp(1) + mg * ref_cog(1),
-                                               -(ref_env_force(0) * ref_zmp(2) - ref_env_force(2) * ref_zmp(0) + mg * ref_cog(0)),
+    hrp::Vector3 ref_ext_moment = hrp::Vector3(mg * ref_cog(1) - ref_total_foot_origin_moment(0),
+                                               -mg * ref_cog(0) - ref_total_foot_origin_moment(1),
                                                0);
     // calc act ext moment around foot origin pos
-    hrp::Vector3 act_env_force = hrp::Vector3::Zero();
-    for (size_t ii = 0; ii < stikp.size(); ii++) {
-        if (std::string(stikp[ii].ee_name).find("leg") != std::string::npos) { // TODO
-            act_env_force += hrp::Vector3(m_wrenches[ii].data[0], m_wrenches[ii].data[1], m_wrenches[ii].data[2]);
-        }
-    }
-    hrp::Vector3 act_ext_moment = hrp::Vector3(act_env_force(1) * act_zmp(2) - act_env_force(2) * act_zmp(1) + mg * act_cog(1),
-                                               -(act_env_force(0) * act_zmp(2) - act_env_force(2) * act_zmp(0) + mg * act_cog(0)),
+    hrp::Vector3 act_ext_moment = hrp::Vector3(mg * act_cog(1) - act_total_foot_origin_moment(0),
+                                               -mg * act_cog(0) - act_total_foot_origin_moment(1),
                                                0);
     // Do not calculate actual value if in the air, because of invalid act_zmp.
     if ( !on_ground ) act_ext_moment = ref_ext_moment;
@@ -1967,6 +2119,7 @@ void Stabilizer::sync_2_st ()
   d_rpy[0] = d_rpy[1] = 0;
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
+  use_flywheel_st = false;
   for (size_t i = 0; i < stikp.size(); i++) {
     STIKParam& ikp = stikp[i];
     ikp.target_ee_diff_p = hrp::Vector3::Zero();
@@ -2223,6 +2376,10 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
       ilp.reference_gain = stikp[i].reference_gain;
       ilp.manipulability_limit = jpe_v[i]->getManipulabilityLimit();
       ilp.ik_loop_count = stikp[i].ik_loop_count; // size_t -> unsigned short, value may change, but ik_loop_count is small value and value not change
+  }
+  i_stp.com_flywheel_st_mode = com_flywheel_st_mode;
+  for (size_t i=0; i<flywheel_rpy_limit.size(); i++){
+    i_stp.flywheel_rpy_limit[i] = rad2deg(flywheel_rpy_limit(i));
   }
 };
 
@@ -2540,6 +2697,11 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
           std::cerr << stikp[i].ik_loop_count << ", ";
       }
       std::cerr << "]" << std::endl;
+  }
+  com_flywheel_st_mode = i_stp.com_flywheel_st_mode;
+  for (size_t i=0; i < flywheel_rpy_limit.size(); i++){
+    std::cerr << "flywheel_rpy_limit.size() = "<< flywheel_rpy_limit.size() << '\n';
+    flywheel_rpy_limit(i)=deg2rad(i_stp.flywheel_rpy_limit[i]);
   }
 }
 

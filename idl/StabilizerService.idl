@@ -260,6 +260,10 @@ module OpenHRP
       boolean use_zmp_truncation;
       /// Sequence of adaptive contact param
       sequence<AdaptiveContactParameters> adaptive_contact_parameters;
+      /// COM flywheel ST mode;
+      boolean com_flywheel_st_mode;
+      /// Flywheel rpy limit
+      DblArray4 flywheel_rpy_limit;
     };
 
     /**

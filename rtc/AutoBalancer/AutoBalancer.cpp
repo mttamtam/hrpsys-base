@@ -1283,13 +1283,13 @@ bool AutoBalancer::goVelocity(const double& vx, const double& vy, const double& 
     std::vector<leg_type> current_legs;
     switch(gait_type) {
     case BIPED:
-        current_legs = (vy > 0 ? boost::assign::list_of(RLEG) : boost::assign::list_of(LLEG));
+        current_legs.assign (1, vy > 0 ? RLEG : LLEG);
         break;
     case TROT:
-        current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(LARM) : boost::assign::list_of(LLEG)(RARM));
+        current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(LARM) : boost::assign::list_of(LLEG)(RARM)).convert_to_container < std::vector<leg_type> > ();
         break;
     case PACE:
-        current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(RARM) : boost::assign::list_of(LLEG)(LARM));
+        current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(RARM) : boost::assign::list_of(LLEG)(LARM)).convert_to_container < std::vector<leg_type> > ();
         break;
     case CRAWL:
         std::cerr << "[" << m_profile.instance_name << "] crawl walk[" << gait_type << "] is not implemented yet." << std::endl;
@@ -2054,24 +2054,26 @@ void AutoBalancer::calc_static_balance_point_from_forces(hrp::Vector3& sb_point,
   for (size_t j = 0; j < 2; j++) {
     nume(j) = mg * tmpcog(j);
     denom(j) = mg;
-    for ( std::map<std::string, ABCIKparam>::iterator it = ikp.begin(); it != ikp.end(); it++ ) {
-      // Check leg_names. leg_names is assumed to be support limb for locomotion, cannot be used for manipulation. If it->first is not included in leg_names, use it for manipulation and static balance point calculation.
-      if (std::find(leg_names.begin(), leg_names.end(), it->first) == leg_names.end()) {
-        size_t idx = contact_states_index_map[it->first];
-        // Force applied point is assumed as end effector
-        hrp::Vector3 fpos = it->second.target_link->p + it->second.target_link->R * it->second.localPos;
-        nume(j) += ( (fpos(2) - ref_com_height) * tmp_forces[idx](j) - fpos(j) * tmp_forces[idx](2) );
-        denom(j) -= tmp_forces[idx](2);
-      }
-    }
-    if ( use_force == MODE_REF_FORCE_WITH_FOOT ) {
-        hrp::Vector3 fpos(additional_force_applied_link->p+additional_force_applied_point_offset);
-        nume(j) += ( (fpos(2) - ref_com_height) * total_nosensor_ref_force(j) - fpos(j) * total_nosensor_ref_force(2) );
-        denom(j) -= total_nosensor_ref_force(2);
-    } else if ( use_force == MODE_REF_FORCE_RFU_EXT_MOMENT ) {
+    if ( use_force == MODE_REF_FORCE_RFU_EXT_MOMENT ) {
         //nume(j) += (j==0 ? tmp_ext_moment(1):-tmp_ext_moment(0));
         nume(j) += (tmp_prev_additional_force_applied_pos(j)-additional_force_applied_link->p(j))*total_nosensor_ref_force(2) + (j==0 ? tmp_ext_moment(1):-tmp_ext_moment(0));
         denom(j) -= total_nosensor_ref_force(2);
+    } else {
+        for ( std::map<std::string, ABCIKparam>::iterator it = ikp.begin(); it != ikp.end(); it++ ) {
+            // Check leg_names. leg_names is assumed to be support limb for locomotion, cannot be used for manipulation. If it->first is not included in leg_names, use it for manipulation and static balance point calculation.
+            if (std::find(leg_names.begin(), leg_names.end(), it->first) == leg_names.end()) {
+                size_t idx = contact_states_index_map[it->first];
+                // Force applied point is assumed as end effector
+                hrp::Vector3 fpos = it->second.target_link->p + it->second.target_link->R * it->second.localPos;
+                nume(j) += ( (fpos(2) - ref_com_height) * tmp_forces[idx](j) - fpos(j) * tmp_forces[idx](2) );
+                denom(j) -= tmp_forces[idx](2);
+            }
+        }
+        if ( use_force == MODE_REF_FORCE_WITH_FOOT ) {
+            hrp::Vector3 fpos(additional_force_applied_link->p+additional_force_applied_point_offset);
+            nume(j) += ( (fpos(2) - ref_com_height) * total_nosensor_ref_force(j) - fpos(j) * total_nosensor_ref_force(2) );
+            denom(j) -= total_nosensor_ref_force(2);
+        }
     }
     sb_point(j) = nume(j) / denom(j);
   }
@@ -2128,22 +2130,23 @@ hrp::Vector3 AutoBalancer::calc_vel_from_hand_error (const coordinates& tmp_fix_
 bool AutoBalancer::calc_inital_support_legs(const double& y, std::vector<coordinates>& initial_support_legs_coords, std::vector<leg_type>& initial_support_legs, coordinates& start_ref_coords) {
     switch(gait_type) {
     case BIPED:
-        initial_support_legs_coords = (y > 0 ?
-                                       boost::assign::list_of(coordinates(ikp["rleg"].target_p0, ikp["rleg"].target_r0))
-                                       : boost::assign::list_of(coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0)));
-        initial_support_legs = (y > 0 ? boost::assign::list_of(RLEG) : boost::assign::list_of(LLEG));
+        initial_support_legs_coords.assign (1,
+                                            y > 0 ?
+                                            coordinates(ikp["rleg"].target_p0, ikp["rleg"].target_r0)
+                                            : coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0));
+        initial_support_legs.assign (1, y > 0 ? RLEG : LLEG);
         break;
     case TROT:
         initial_support_legs_coords = (y > 0 ?
                                        boost::assign::list_of(coordinates(ikp["rleg"].target_p0, ikp["rleg"].target_r0))(coordinates(ikp["larm"].target_p0, ikp["larm"].target_r0))
-                                       : boost::assign::list_of(coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0))(coordinates(ikp["rarm"].target_p0, ikp["rarm"].target_r0)));
-        initial_support_legs = (y > 0 ? boost::assign::list_of(RLEG)(LARM) : boost::assign::list_of(LLEG)(RARM));
+                                       : boost::assign::list_of(coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0))(coordinates(ikp["rarm"].target_p0, ikp["rarm"].target_r0))).convert_to_container < std::vector<coordinates> > ();
+        initial_support_legs = (y > 0 ? boost::assign::list_of(RLEG)(LARM) : boost::assign::list_of(LLEG)(RARM)).convert_to_container < std::vector<leg_type> > ();
         break;
     case PACE:
         initial_support_legs_coords = (y > 0 ?
                                        boost::assign::list_of(coordinates(ikp["rleg"].target_p0, ikp["rleg"].target_r0))(coordinates(ikp["rarm"].target_p0, ikp["rarm"].target_r0))
-                                       : boost::assign::list_of(coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0))(coordinates(ikp["larm"].target_p0, ikp["larm"].target_r0)));
-        initial_support_legs = (y > 0 ? boost::assign::list_of(RLEG)(RARM) : boost::assign::list_of(LLEG)(LARM));
+                                       : boost::assign::list_of(coordinates(ikp["lleg"].target_p0, ikp["lleg"].target_r0))(coordinates(ikp["larm"].target_p0, ikp["larm"].target_r0))).convert_to_container < std::vector<coordinates> > ();
+        initial_support_legs = (y > 0 ? boost::assign::list_of(RLEG)(RARM) : boost::assign::list_of(LLEG)(LARM)).convert_to_container < std::vector<leg_type> > ();
         break;
     case CRAWL:
         std::cerr << "[" << m_profile.instance_name << "] crawl walk[" << gait_type << "] is not implemented yet." << std::endl;

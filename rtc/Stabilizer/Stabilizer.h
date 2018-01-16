@@ -349,10 +349,25 @@ class Stabilizer
   hrp::Vector3 new_refzmp, rel_cog, ref_zmp_aux, diff_foot_origin_ext_moment;
   hrp::Vector3 pos_ctrl;
   hrp::Vector3 ref_total_force, ref_total_moment;
+  // Total foot moment around the foot origin coords (relative to foot origin coords)
+  hrp::Vector3 ref_total_foot_origin_moment, act_total_foot_origin_moment;
   hrp::Vector3 eefm_swing_pos_damping_gain, eefm_swing_rot_damping_gain;
   double total_mass, transition_time, cop_check_margin, contact_decision_threshold;
   std::vector<double> cp_check_margin, tilt_margin;
   OpenHRP::StabilizerService::EmergencyCheckMode emergency_check_mode;
+    // FLYWHEEL ST
+  bool com_flywheel_st_mode;
+  bool use_flywheel_st;
+  Eigen::Vector4d flywheel_rpy_limit;
+  hrp::Vector3 flywheel_balance_moment;
+  hrp::Vector3 d_rpy_vel, max_d_rpy_vel, d_rpy_prev;
+  hrp::Vector3 T_r1;
+
+  // balance acc
+  Eigen::Vector2d cp_error_thre_h, cp_error_thre_l;
+  Eigen::Vector2d balance_acc, balance_acc_const, balance_acc_moment;
+  std::vector<bool> balance_acc_mode;
+  std::vector<double> balance_acc_time, balance_acc_vel, balance_acc_pos, balance_acc_pos_limit;
 };
 
 
