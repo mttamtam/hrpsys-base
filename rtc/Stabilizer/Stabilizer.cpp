@@ -304,7 +304,9 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
           jpe_v.back()->setOptionalWeightVector(optw);
       }
       target_ee_p.push_back(hrp::Vector3::Zero());
+      rel_target_ee_p.push_back(hrp::Vector3::Zero());
       target_ee_R.push_back(hrp::Matrix33::Identity());
+      rel_target_ee_R.push_back(hrp::Matrix33::Identity());
       act_ee_p.push_back(hrp::Vector3::Zero());
       act_ee_R.push_back(hrp::Matrix33::Identity());
       projected_normal.push_back(hrp::Vector3::Zero());
@@ -399,7 +401,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   cp_offset = hrp::Vector3(0.0, 0.0, 0.0); // [m]
   tilt_margin.resize(2, 30 * M_PI / 180); // [rad]
   contact_decision_threshold = 50; // [N]
-  eefm_use_force_difference_control = true;
+  eefm_use_force_difference_control = false;
   eefm_use_swing_damping = false;
   eefm_swing_damping_force_thre.resize(3, 300);
   eefm_swing_damping_moment_thre.resize(3, 15);
@@ -414,6 +416,28 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   limb_stretch_avoidance_vlimit[1] = 50 * 1e-3 * dt; // upper limit
   root_rot_compensation_limit[0] = root_rot_compensation_limit[1] = deg2rad(90.0);
   detection_count_to_air = static_cast<int>(0.0 / dt);
+  for (size_t i=0; i < stikp.size(); i++){
+    AdaptiveContactParameters acp;
+    acp.use_adaptive_contact = true;
+    acp.radius = 0.1;
+    acp.x_cop_offset = hrp::Vector3::Zero();
+    acp.k_gain = 0.02;
+    acp.d_gain = 2e-4;
+    // acp.d_foot_rpy_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, dt, hrp::Vector3::Zero())); // [Hz]
+    adaptive_contact_parameters.push_back(acp);
+    ac_ee_p.push_back(hrp::Vector3::Zero());
+    ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    ac_ee_p_filtered.push_back(hrp::Vector3::Zero());
+    ac_ee_rpy_filtered.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_p.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_p_filtered.push_back(hrp::Vector3::Zero());
+    prev_ac_ee_rpy_filtered.push_back(hrp::Vector3::Zero());
+    d_ac_ee_p.push_back(hrp::Vector3::Zero());
+    d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
+    prev_d_ac_ee_p.push_back(hrp::Vector3::Zero());
+    prev_d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
+  }
 
   // parameters for COM flywhell st
   com_flywheel_st_mode = true;
@@ -643,6 +667,18 @@ RTC::ReturnCode_t Stabilizer::onExecute(RTC::UniqueId ec_id)
     getTargetParameters();
     getActualParameters();
     calcStateForEmergencySignal();
+    if(control_mode != MODE_ST){
+        for( size_t i= 0; i<stikp.size(); i++){
+            ac_ee_p[i] = hrp::Vector3::Zero();
+            ac_ee_rpy[i] = hrp::Vector3::Zero();
+            ac_ee_p_filtered[i] = hrp::Vector3::Zero();
+            ac_ee_rpy_filtered[i] = hrp::Vector3::Zero();
+            d_ac_ee_p[i] = hrp::Vector3::Zero();
+            d_ac_ee_rpy[i] = hrp::Vector3::Zero();
+            prev_ac_ee_p_filtered[i] = hrp::Vector3::Zero();
+            prev_ac_ee_rpy_filtered[i] = hrp::Vector3::Zero();
+        }
+    }
     switch (control_mode) {
     case MODE_IDLE:
       break;
@@ -928,6 +964,7 @@ void Stabilizer::getActualParameters ()
     std::vector<double> limb_gains;
     std::vector<hrp::dvector6> ee_forcemoment_distribution_weight;
     std::vector<double> tmp_toeheel_ratio;
+    std::vector<AdaptiveContactParameters> acp_list;
     if (control_mode == MODE_ST) {
       std::vector<hrp::Vector3> ee_pos, cop_pos;
       std::vector<hrp::Matrix33> ee_rot;
@@ -954,6 +991,7 @@ void Stabilizer::getActualParameters ()
               ee_forcemoment_distribution_weight[i][j] = ikp.eefm_ee_forcemoment_distribution_weight[j];
           }
           tmp_toeheel_ratio.push_back(toeheel_ratio[i]);
+          acp_list.push_back(adaptive_contact_parameters[i]);
       }
 
 
@@ -1044,6 +1082,84 @@ void Stabilizer::getActualParameters ()
         if (!szd->is_inside_support_polygon(tmp_new_refzmp, hrp::Vector3::Zero(), true, std::string(m_profile.instance_name))) new_refzmp.head(2) = tmp_new_refzmp;
       }
 
+      // Modify ref values for adaptive contact
+      for (size_t i = 0; i < acp_list.size(); i++){
+        if (adaptive_contact_parameters[i].use_adaptive_contact) {
+          // hrp::Vector3 d_foot_rpy_tmp = adaptive_contact_parameters[i].d_foot_rpy_filter->passFilter(hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]));
+          // if (is_contact_list[i]){
+            std::cerr << i << " " << '\n';
+            hrp::Vector3 ee_rpy = hrp::rpyFromRot(ee_rot[i]);
+            // std::cerr << "ee_rpy is " << ee_rpy << '\n';
+            adaptive_contact_parameters[i].x_cop_offset(0) = 0.05;
+            hrp::Vector3 ee_pos_before = ee_pos[i];
+            hrp::Vector3 cop;
+            calcCOP(cop, 0.0, i);
+            for(size_t j=0; j<2; j++){
+              ee_pos[i](j) = cop(j); // means cop in world frame
+                                  // + adaptive_contact_parameters[i].x_cop_offset(j)
+            }
+            // std::cerr << "x before: " << ee_pos_before(0) << "\t after: " << ee_pos[i](0) << std::endl;
+            // std::cerr << "y before: " << ee_pos_before(1) << "\t after: " << ee_pos[i](1) << std::endl;
+            // std::cerr << "z before: " << ee_pos_before(2) << "\t after: " << ee_pos[i](2) << std::endl;
+            // ee_pos[i](0) += 2*ee_rpy(1)*adaptive_contact_parameters[i].radius*cos(ee_rpy(1));
+            // ee_pos[i](1) -= 2*ee_rpy(0)*adaptive_contact_parameters[i].radius*cos(-ee_rpy(0));
+            // ee_pos[i](2) += std::pow(2*ee_rpy(1)*adaptive_contact_parameters[i].radius*sin(ee_rpy(1)), 2.0)
+            //               + std::pow(-2*ee_rpy(0)*adaptive_contact_parameters[i].radius*sin(-ee_rpy(0)), 2.0);
+
+            // stikp[i].d_foot_pos = foot_origin_rot.transpose() * (ee_pos[i] - foot_origin_pos);
+            // stikp[i].d_foot_rpy = d_foot_rpy_tmp;
+            // stikp[i].d_foot_rpy = hrp::rpyFromRot(foot_origin_rot.transpose() * ee_rot[i]);
+
+            print_vector("cop", cop);
+            print_vector("ee_pos_before", ee_pos_before);
+            //一旦foot_origin_pos, rot 相対として、それをtargetのほうで足す。
+            hrp::Vector3 hoge = 0.1*ee_pos[i] + 0.9*ee_pos[i];
+            hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (hoge - foot_origin_pos);
+
+            // hrp::Vector3 rel_ee_pos_tmp = foot_origin_rot.transpose() * (ee_pos_before - foot_origin_pos);
+            hrp::Matrix33 rel_ee_rot_tmp = foot_origin_rot.transpose() * ee_rot[i];
+            hrp::Matrix33 target_ee_R_before = target_ee_R[i];
+            hrp::Vector3 target_ee_rpy = hrp::rpyFromRot(target_ee_R[i]);
+            //std::cerr << "target rpy: " << target_ee_rpy.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "[", "]")) << std::endl;
+            // print_vector("target_ee_rpy", target_ee_rpy);
+
+            //actual foot oigin relative
+            double timeconstp = 1; // (sec)
+            double timeconstr = 1; // (sec)
+            ac_ee_p_filtered[i] = 0.5*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.5*ac_ee_p[i];
+            ac_ee_rpy_filtered[i] = 0.5*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.5*ac_ee_rpy[i];
+            // ac_ee_p_filtered[i] = rel_ee_pos[i] - rel_target_ee_p[i];
+            // ac_ee_rpy_filtered[i] = hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i]);
+            d_ac_ee_p[i] = adaptive_contact_parameters[i].k_gain*(ac_ee_p_filtered[i]) + adaptive_contact_parameters[i].d_gain*(ac_ee_p_filtered[i] - prev_ac_ee_p_filtered[i]);
+            d_ac_ee_rpy[i] = adaptive_contact_parameters[i].k_gain*(ac_ee_rpy_filtered[i]) + adaptive_contact_parameters[i].d_gain*(ac_ee_rpy_filtered[i] - prev_ac_ee_rpy_filtered[i]);
+            // ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i]*0.002 - 0.02*ac_ee_p[i];
+            // ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i]*0.002 - 0.02*ac_ee_rpy[i];
+            ac_ee_p[i] = ac_ee_p[i] + d_ac_ee_p[i] - 0.03 * ac_ee_p[i];
+            ac_ee_p[i] = vlimit(ac_ee_p[i], -0.2, 0.2);
+            ac_ee_rpy[i] = ac_ee_rpy[i] + d_ac_ee_rpy[i] - 0.03 * ac_ee_rpy[i];
+            ac_ee_rpy[i] = vlimit(ac_ee_rpy[i], -0.8, 0.8);
+
+            prev_ac_ee_p_filtered[i] = ac_ee_p_filtered[i];
+            prev_ac_ee_rpy_filtered[i] = ac_ee_rpy_filtered[i];
+
+            // ac_ee_p[i] = 0.2*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.8*ac_ee_p[i] - 0.02*ac_ee_p[i];
+            // ac_ee_rpy[i] = 0.4*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.6*ac_ee_rpy[i] - 0.02*ac_ee_rpy[i];
+
+            print_vector("target_ee_p_before", target_ee_p[i]);
+
+            // target_ee_p[i] = 0.1* (target_foot_origin_pos + target_foot_origin_rot * rel_ee_pos_tmp) + 0.9*target_ee_p[i];
+            print_vector("target_ee_p_after", target_ee_p[i]);
+            // target_ee_R[i] = target_foot_origin_rot * rel_ee_rot_tmp;
+            // stikp[i].d_foot_rpy -= hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R[i])
+            //                       -hrp::rpyFromRot(foot_origin_rot * target_foot_origin_rot.transpose() * target_ee_R_before);
+          // }else{
+            // ac_ee_p[i] -= ac_ee_p[i]/50.0;
+            // ac_ee_rpy[i] -= ac_ee_rpy[i]/50.0;
+          // }
+          //std::cerr << "[" << m_profile.instance_name << "]   " << i << "use_adaptive_contact is true!!!!!!!!!!" << std::endl;
+        }
+      }
+
       // Distribute ZMP into each EE force/moment at each COP
       if (st_algorithm == OpenHRP::StabilizerService::EEFM) {
           // Modified version of distribution in Equation (4)-(6) and (10)-(13) in the paper [1].
@@ -1124,12 +1240,18 @@ void Stabilizer::getActualParameters ()
               if (!eefm_use_swing_damping || !large_swing_m_diff[j]) tmp_damping_gain(j) = (1-transition_smooth_gain) * ikp.eefm_rot_damping_gain(j) * 10 + transition_smooth_gain * ikp.eefm_rot_damping_gain(j);
               else tmp_damping_gain(j) = (1-transition_smooth_gain) * eefm_swing_rot_damping_gain(j) * 10 + transition_smooth_gain * eefm_swing_rot_damping_gain(j);
           }
+          // ikp.d_foot_rpy += calcDampingControlDiff(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           ikp.d_foot_rpy = calcDampingControl(ikp.ref_moment, ee_moment, ikp.d_foot_rpy, tmp_damping_gain, ikp.eefm_rot_time_const);
           ikp.d_foot_rpy = vlimit(ikp.d_foot_rpy, -1 * ikp.eefm_rot_compensation_limit, ikp.eefm_rot_compensation_limit);
         }
         if (!eefm_use_force_difference_control) { // Pos
             hrp::Vector3 tmp_damping_gain = (1-transition_smooth_gain) * ikp.eefm_pos_damping_gain * 10 + transition_smooth_gain * ikp.eefm_pos_damping_gain;
+            print_vector("ikp.ref_force", ikp.ref_force);
+            print_vector("sensor_force", sensor_force);
+            hrp::Vector3 d_foot_pos_before = ikp.d_foot_pos;
+            // ikp.d_foot_pos += calcDampingControlDiff(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
             ikp.d_foot_pos = calcDampingControl(ikp.ref_force, sensor_force, ikp.d_foot_pos, tmp_damping_gain, ikp.eefm_pos_time_const_support);
+            print_vector("diff:", ikp.d_foot_pos - d_foot_pos_before);
             ikp.d_foot_pos = vlimit(ikp.d_foot_pos, -1 * ikp.eefm_pos_compensation_limit, ikp.eefm_pos_compensation_limit);
         }
         // Actual ee frame =>
@@ -1330,6 +1452,8 @@ void Stabilizer::getTargetParameters ()
     for (size_t i = 0; i < stikp.size(); i++) {
       stikp[i].target_ee_diff_p = foot_origin_rot.transpose() * (target_ee_p[i] - foot_origin_pos);
       stikp[i].target_ee_diff_r = foot_origin_rot.transpose() * target_ee_R[i];
+      rel_target_ee_p[i] = foot_origin_rot.transpose() * (target_ee_p[i] - foot_origin_pos);
+      rel_target_ee_R[i] = foot_origin_rot.transpose() * target_ee_R[i];
       ref_force[i] = foot_origin_rot.transpose() * ref_force[i];
       ref_moment[i] = foot_origin_rot.transpose() * ref_moment[i];
     }
@@ -1337,6 +1461,7 @@ void Stabilizer::getTargetParameters ()
     ref_total_force = foot_origin_rot.transpose() * ref_total_force;
     ref_total_moment = foot_origin_rot.transpose() * ref_total_moment;
     target_foot_origin_rot = foot_origin_rot;
+    target_foot_origin_pos = foot_origin_pos;
     // capture point
     ref_cp = ref_cog + ref_cogvel / std::sqrt(eefm_gravitational_acceleration / (ref_cog - ref_zmp)(2));
     rel_ref_cp = hrp::Vector3(ref_cp(0), ref_cp(1), ref_zmp(2));
@@ -1390,6 +1515,25 @@ bool Stabilizer::calcZMP(hrp::Vector3& ret_zmp, const double zmp_z)
     ret_zmp = hrp::Vector3(tmpzmpx / tmpfz, tmpzmpy / tmpfz, zmp_z);
     return true; // on ground
   }
+};
+
+bool Stabilizer::calcCOP(hrp::Vector3& ret_cop, const double cop_z, const size_t ee_index)
+{
+  double tmpcopx = 0;
+  double tmpcopy = 0;
+  STIKParam &ikp = stikp[ee_index];
+  hrp::ForceSensor* sensor = m_robot->sensor<hrp::ForceSensor>(ikp.sensor_name);
+  hrp::Vector3 fsp = sensor->link->p + sensor->link->R * sensor->localPos;
+  hrp::Matrix33 tmpR;
+  rats::rotm3times(tmpR, sensor->link->R, sensor->localR);
+  hrp::Vector3 nf = tmpR * hrp::Vector3(m_wrenches[ee_index].data[0], m_wrenches[ee_index].data[1], m_wrenches[ee_index].data[2]);
+  hrp::Vector3 nm = tmpR * hrp::Vector3(m_wrenches[ee_index].data[3], m_wrenches[ee_index].data[4], m_wrenches[ee_index].data[5]);
+  // "humanoid robot" p.75 (3.24) (3.25)
+  tmpcopx = (nf(2) * fsp(0) - (fsp(2) - cop_z) * nf(0) - nm(1)) / nf(2);
+  tmpcopy = (nf(2) * fsp(1) - (fsp(2) - cop_z) * nf(1) + nm(0)) / nf(2);
+  ret_cop = hrp::Vector3(tmpcopx, tmpcopy, cop_z);
+  if (nf(2) < contact_decision_threshold) return false;
+  else return true;
 };
 
 void Stabilizer::calcStateForEmergencySignal()
@@ -1770,11 +1914,13 @@ void Stabilizer::calcEEForceMomentControl() {
         if (is_ik_enable[i]) {
           // Add damping_control compensation to target value
           if (is_feedback_control_enable[i]) {
-            rats::rotm3times(tmpR[i], target_ee_R[i], hrp::rotFromRpy(-1*stikp[i].ee_d_foot_rpy));
+            rats::rotm3times(tmpR[i], target_ee_R[i], hrp::rotFromRpy(ac_ee_rpy[i]));
+            rats::rotm3times(tmpR[i], tmpR[i], hrp::rotFromRpy(-1*stikp[i].ee_d_foot_rpy));
             // foot force difference control version
             // total_target_foot_p[i](2) = target_foot_p[i](2) + (i==0?0.5:-0.5)*zctrl;
             // foot force independent damping control
-            tmpp[i] = target_ee_p[i] - current_d_foot_pos[i];
+            print_vector("current_d_foot_pos", current_d_foot_pos[i]);
+            tmpp[i] = target_ee_p[i] + ac_ee_p[i] - current_d_foot_pos[i];
           } else {
             tmpp[i] = target_ee_p[i];
             tmpR[i] = target_ee_R[i];
@@ -1896,6 +2042,12 @@ hrp::Vector3 Stabilizer::calcDampingControl (const hrp::Vector3& tau_d, const hr
                                              const hrp::Vector3& DD, const hrp::Vector3& TT)
 {
   return ((tau_d - tau).cwiseQuotient(DD) - prev_d.cwiseQuotient(TT)) * dt + prev_d;
+};
+
+hrp::Vector3 Stabilizer::calcDampingControlDiff (const hrp::Vector3& tau_d, const hrp::Vector3& tau, const hrp::Vector3& prev_d,
+                                             const hrp::Vector3& DD, const hrp::Vector3& TT)
+{
+  return ((tau_d - tau).cwiseQuotient(DD) - prev_d.cwiseQuotient(TT)) * dt;
 };
 
 void Stabilizer::calcDiffFootOriginExtMoment ()
@@ -2171,6 +2323,20 @@ void Stabilizer::getParameter(OpenHRP::StabilizerService::stParam& i_stp)
   i_stp.end_effector_list.length(stikp.size());
   i_stp.use_limb_stretch_avoidance = use_limb_stretch_avoidance;
   i_stp.use_zmp_truncation = use_zmp_truncation;
+  std::cerr << "before" << i_stp.adaptive_contact_parameters.length() <<'\n';
+  i_stp.adaptive_contact_parameters.length(adaptive_contact_parameters.size());
+  std::cerr << "after" << i_stp.adaptive_contact_parameters.length() << std::endl;
+  for (size_t i = 0; i < adaptive_contact_parameters.size(); i++){
+    OpenHRP::StabilizerService::AdaptiveContactParameters& acp = i_stp.adaptive_contact_parameters[i];
+    acp.use_adaptive_contact = adaptive_contact_parameters[i].use_adaptive_contact;
+    acp.radius = adaptive_contact_parameters[i].radius;
+    acp.x_cop_offset.length(3);
+    for (size_t ii = 0; ii < 3; ii++){
+      acp.x_cop_offset[ii] = adaptive_contact_parameters[i].x_cop_offset(ii);
+    }
+    acp.k_gain = adaptive_contact_parameters[i].k_gain;
+    acp.d_gain = adaptive_contact_parameters[i].d_gain;
+  }
   i_stp.limb_stretch_avoidance_time_const = limb_stretch_avoidance_time_const;
   i_stp.limb_length_margin.length(stikp.size());
   i_stp.detection_time_to_air = detection_count_to_air * dt;
@@ -2303,7 +2469,6 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
   szd->set_leg_outside_margin(i_stp.eefm_leg_outside_margin);
   szd->set_leg_front_margin(i_stp.eefm_leg_front_margin);
   szd->set_leg_rear_margin(i_stp.eefm_leg_rear_margin);
-  szd->set_vertices_from_margin_params();
 
   if (i_stp.eefm_support_polygon_vertices_sequence.length() != stikp.size()) {
       std::cerr << "[" << m_profile.instance_name << "]   eefm_support_polygon_vertices_sequence cannot be set. Length " << i_stp.eefm_support_polygon_vertices_sequence.length() << " != " << stikp.size() << std::endl;
@@ -2354,6 +2519,22 @@ void Stabilizer::setParameter(const OpenHRP::StabilizerService::stParam& i_stp)
   is_estop_while_walking = i_stp.is_estop_while_walking;
   use_limb_stretch_avoidance = i_stp.use_limb_stretch_avoidance;
   use_zmp_truncation = i_stp.use_zmp_truncation;
+  if (i_stp.adaptive_contact_parameters.length() != adaptive_contact_parameters.size()) {
+    std::cerr << "[" << m_profile.instance_name << "]   adaptive_contact_parameters cannot be set. Length "
+              << i_stp.adaptive_contact_parameters.length() << " != " << adaptive_contact_parameters.size() << std::endl;
+  } else {
+    for( size_t i = 0; i < i_stp.adaptive_contact_parameters.length(); i++){
+      AdaptiveContactParameters acp;
+      acp.use_adaptive_contact = i_stp.adaptive_contact_parameters[i].use_adaptive_contact;
+      acp.radius = i_stp.adaptive_contact_parameters[i].radius;
+      for( size_t ii = 0; ii < 3; ii++){
+        acp.x_cop_offset(ii) = i_stp.adaptive_contact_parameters[i].x_cop_offset[ii];
+      }
+      acp.k_gain = i_stp.adaptive_contact_parameters[i].k_gain;
+      acp.d_gain = i_stp.adaptive_contact_parameters[i].d_gain;
+      adaptive_contact_parameters[i] = acp;
+    }
+  }
   limb_stretch_avoidance_time_const = i_stp.limb_stretch_avoidance_time_const;
   for (size_t i = 0; i < 2; i++) {
     limb_stretch_avoidance_vlimit[i] = i_stp.limb_stretch_avoidance_vlimit[i];
