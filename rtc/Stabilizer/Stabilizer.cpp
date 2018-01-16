@@ -1578,7 +1578,7 @@ void Stabilizer::moveBasePosRotForBodyRPYControl ()
         balance_acc_pos[i] = balance_acc_pos[i] + balance_acc_vel[i]*dt;
       }else{
         balance_acc_vel[i] -= balance_acc_vel[i]*0.2;
-        balance_acc_pos[i] -= balance_acc_pos[i]*0.02;
+        balance_acc_pos[i] -= balance_acc_pos[i]*0.002;
       }
     }
     hrp::Vector3 balance_acc_comp(balance_acc_pos[0], balance_acc_pos[1], 0);
