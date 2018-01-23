@@ -2120,6 +2120,14 @@ void Stabilizer::sync_2_st ()
   pdr = hrp::Vector3::Zero();
   pos_ctrl = hrp::Vector3::Zero();
   use_flywheel_st = false;
+  balance_acc_mode[0] = false;
+  balance_acc_mode[1] = false;
+  flywheel_balance_moment = hrp::Vector3::Zero();
+  d_rpy_vel = hrp::Vector3::Zero();
+  balance_acc_pos[0] = 0;
+  balance_acc_pos[1] = 0;
+  balance_acc_vel[0] = 0;
+  balance_acc_vel[1] = 0;
   for (size_t i = 0; i < stikp.size(); i++) {
     STIKParam& ikp = stikp[i];
     ikp.target_ee_diff_p = hrp::Vector3::Zero();
