@@ -656,8 +656,8 @@ class HrpsysConfigurator(object):
 
     def findComp(self, compName, instanceName, max_timeout_count=10, verbose=True):
         '''!@brief
-        Find component(plugin) 
-        
+        Find component(plugin)
+
         @param compName str: component name
         @param instanceName str: instance name
         @max_timeout_count int: max timeout in seconds
@@ -779,7 +779,7 @@ class HrpsysConfigurator(object):
         for rtc in self.getRTCList():
             r = 'self.'+rtc[0]
             try:
-                if eval(r): 
+                if eval(r):
                     ret.append(eval(r))
                 else:
                     if verbose:
@@ -900,6 +900,9 @@ class HrpsysConfigurator(object):
             self.connectLoggerPort(self.st, 'originActCogVel')
             self.connectLoggerPort(self.st, 'allRefWrench')
             self.connectLoggerPort(self.st, 'allEEComp')
+            self.connectLoggerPort(self.st, 'allEEACCComp')
+            self.connectLoggerPort(self.st, 'accelmoment')
+            self.connectLoggerPort(self.st, 'flywheelmoment')
             self.connectLoggerPort(self.st, 'q')
             self.connectLoggerPort(self.st, 'actBaseRpy')
             self.connectLoggerPort(self.st, 'currentBasePos')
@@ -1051,7 +1054,7 @@ class HrpsysConfigurator(object):
                 TODO: at least need to warn users.
         NOTE-2: While this method does not check angle value range,
                 any joints could emit position limit over error, which has not yet
-                been thrown by hrpsys so that there's no way to catch on this python client. 
+                been thrown by hrpsys so that there's no way to catch on this python client.
                 Worthwhile opening an enhancement ticket at designated issue tracker.
         \endverbatim
 
@@ -1070,7 +1073,7 @@ class HrpsysConfigurator(object):
         \verbatim
         NOTE: While this method does not check angle value range,
               any joints could emit position limit over error, which has not yet
-              been thrown by hrpsys so that there's no way to catch on this python client. 
+              been thrown by hrpsys so that there's no way to catch on this python client.
               Worthwhile opening an enhancement ticket at designated issue tracker.
         \endverbatim
         @param angles list of float: In degree.
@@ -1091,7 +1094,7 @@ class HrpsysConfigurator(object):
         \verbatim
         NOTE: While this method does not check angle value range,
               any joints could emit position limit over error, which has not yet
-              been thrown by hrpsys so that there's no way to catch on this python client. 
+              been thrown by hrpsys so that there's no way to catch on this python client.
               Worthwhile opening an enhancement ticket at designated issue tracker.
         \endverbatim
 
@@ -1115,7 +1118,7 @@ class HrpsysConfigurator(object):
         \verbatim
         NOTE: While this method does not check angle value range,
               any joints could emit position limit over error, which has not yet
-              been thrown by hrpsys so that there's no way to catch on this python client. 
+              been thrown by hrpsys so that there's no way to catch on this python client.
               Worthwhile opening an enhancement ticket at designated issue tracker.
         \endverbatim
         @param sequential list of angles in float: In rad
@@ -1134,7 +1137,7 @@ class HrpsysConfigurator(object):
         \verbatim
         NOTE: While this method does not check angle value range,
               any joints could emit position limit over error, which has not yet
-              been thrown by hrpsys so that there's no way to catch on this python client. 
+              been thrown by hrpsys so that there's no way to catch on this python client.
               Worthwhile opening an enhancement ticket at designated issue tracker.
         \endverbatim
         @param gname str: Name of the joint group.
@@ -1194,7 +1197,7 @@ class HrpsysConfigurator(object):
 
     def setInterpolationMode(self, mode):
         '''!@brief
-        Set interpolation mode. You may need to import OpenHRP in order to pass an argument. For more info See https://github.com/fkanehiro/hrpsys-base/pull/1012#issue-160802911. 
+        Set interpolation mode. You may need to import OpenHRP in order to pass an argument. For more info See https://github.com/fkanehiro/hrpsys-base/pull/1012#issue-160802911.
         @param mode new interpolation mode. Either { OpenHRP.SequencePlayerService.LINEAR, OpenHRP.SequencePlayerService.HOFFARBIB }.
         @return true if set successfully, false otherwise
         '''
@@ -1494,7 +1497,7 @@ dr=0, dp=0, dw=0, tm=10, wait=True):
             posRef = numpy.array([tds[3], tds[7], tds[11]])
             matRef = numpy.array([tds[0:3], tds[4:7], tds[8:11]])
             posRef += [dx, dy, dz]
-            matRef = matRef.dot(numpy.array(euler_matrix(dr, dp, dw)[:3, :3])) 
+            matRef = matRef.dot(numpy.array(euler_matrix(dr, dp, dw)[:3, :3]))
             rpyRef = euler_from_matrix(matRef)
             print(posRef, rpyRef)
             ret = self.setTargetPose(gname, list(posRef), list(rpyRef), tm)
@@ -1522,7 +1525,7 @@ dr=0, dp=0, dw=0, tm=10, wait=True):
     def saveLog(self, fname='sample'):
         '''!@brief
         Save log to the given file name
-        
+
         @param fname str: name of the file
         '''
         self.log_svc.save(fname)
@@ -1943,7 +1946,7 @@ dr=0, dp=0, dw=0, tm=10, wait=True):
 
     def playPattern(self, jointangles, rpy, zmp, tm):
         '''!@brief
-        Play motion pattern using a given trajectory that is represented by 
+        Play motion pattern using a given trajectory that is represented by
         a list of joint angles, rpy, zmp and time.
 
         @type jointangles: [[float]]
@@ -1960,7 +1963,7 @@ dr=0, dp=0, dw=0, tm=10, wait=True):
 
     def playPatternOfGroup(self, gname, jointangles, tm):
         '''!@brief
-        Play motion pattern using a set of given trajectories that are represented by 
+        Play motion pattern using a set of given trajectories that are represented by
         lists of joint angles. Each trajectory aims to run within the specified time (tm),
         and there's no slow down between trajectories unless the next one is the last.
 
@@ -2110,7 +2113,7 @@ dr=0, dp=0, dw=0, tm=10, wait=True):
 
     def startImpedance(self, arm, **kwargs):
         '''!@brief
-        Enable the ImpedanceController RT component. 
+        Enable the ImpedanceController RT component.
         This method internally calls startImpedance-*, hrpsys version-specific method.
 
         @requires: hrpsys version greather than 315.2.0.

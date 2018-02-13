@@ -97,6 +97,9 @@ Stabilizer::Stabilizer(RTC::Manager* manager)
     m_currentBaseRpyOut("currentBaseRpy", m_currentBaseRpy),
     m_allRefWrenchOut("allRefWrench", m_allRefWrench),
     m_allEECompOut("allEEComp", m_allEEComp),
+    m_allEEACCCompOut("allEEACCComp", m_allEEACCComp),
+    m_accelmomentOut("accelmoment", m_accelmoment),
+    m_flywheelmomentOut("flywheelmoment", m_flywheelmoment),
     m_debugDataOut("debugData", m_debugData),
     control_mode(MODE_IDLE),
     st_algorithm(OpenHRP::StabilizerService::TPCC),
@@ -161,6 +164,9 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   addOutPort("currentBaseRpy", m_currentBaseRpyOut);
   addOutPort("allRefWrench", m_allRefWrenchOut);
   addOutPort("allEEComp", m_allEECompOut);
+  addOutPort("allEEACCComp", m_allEEACCCompOut);
+  addOutPort("accelmoment", m_accelmomentOut);
+  addOutPort("flywheelmoment", m_flywheelmomentOut);
   addOutPort("debugData", m_debugDataOut);
 
   // Set service provider to Ports
@@ -439,7 +445,7 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
     prev_d_ac_ee_rpy.push_back(hrp::Vector3::Zero());
   }
 
-  // parameters for COM flywhell st
+  // parameters for COM flywheel st
   com_flywheel_st_mode = true;
   flywheel_rpy_limit = Eigen::Vector4d(deg2rad(-20), deg2rad(20), deg2rad(-20), deg2rad(20));
 
@@ -524,6 +530,9 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
   m_originActCogVel.data.x = m_originActCogVel.data.y = m_originActCogVel.data.z = 0.0;
   m_allRefWrench.data.length(stikp.size() * 6); // 6 is wrench dim
   m_allEEComp.data.length(stikp.size() * 6); // 6 is pos+rot dim
+  m_allEEACCComp.data.length(stikp.size() * 6);
+  m_accelmoment.data.length(2);
+  m_flywheelmoment.data.length(2);
   m_debugData.data.length(1); m_debugData.data[0] = 0.0;
 
   //
@@ -773,12 +782,24 @@ RTC::ReturnCode_t Stabilizer::onExecute(RTC::UniqueId ec_id)
               m_allRefWrench.data[6*i+j+3] = stikp[i].ref_moment(j);
               m_allEEComp.data[6*i+j] = stikp[i].d_foot_pos(j);
               m_allEEComp.data[6*i+j+3] = stikp[i].d_foot_rpy(j);
+              m_allEEACCComp.data[6*i+j] = ac_ee_p[i](j);
+              m_allEEACCComp.data[6*i+j+3] = ac_ee_rpy[i](j);
           }
       }
       m_allRefWrench.tm = m_qRef.tm;
       m_allRefWrenchOut.write();
       m_allEEComp.tm = m_qRef.tm;
       m_allEECompOut.write();
+      m_allEEACCComp.tm = m_qRef.tm;
+      m_allEEACCCompOut.write();
+      m_accelmoment.data[0] = balance_acc_moment(0);
+      m_accelmoment.data[1] = balance_acc_moment(1);
+      m_accelmoment.tm = m_qRef.tm;
+      m_accelmomentOut.write();
+      m_flywheelmoment.data[0] = flywheel_balance_moment(0);
+      m_flywheelmoment.data[1] = flywheel_balance_moment(1);
+      m_flywheelmoment.tm = m_qRef.tm;
+      m_flywheelmomentOut.write();
       m_actBaseRpy.data.r = act_base_rpy(0);
       m_actBaseRpy.data.p = act_base_rpy(1);
       m_actBaseRpy.data.y = act_base_rpy(2);
