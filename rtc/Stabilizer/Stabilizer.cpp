@@ -428,7 +428,9 @@ RTC::ReturnCode_t Stabilizer::onInitialize()
     acp.radius = 0.1;
     acp.x_cop_offset = hrp::Vector3::Zero();
     acp.k_gain = 0.02;
+    // acp.d_gain = 2e-3;
     acp.d_gain = 2e-4;
+    // this filter did not work. something wrong.
     // acp.d_foot_rpy_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, dt, hrp::Vector3::Zero())); // [Hz]
     adaptive_contact_parameters.push_back(acp);
     ac_ee_p.push_back(hrp::Vector3::Zero());
@@ -1149,6 +1151,8 @@ void Stabilizer::getActualParameters ()
             double timeconstr = 1; // (sec)
             ac_ee_p_filtered[i] = 0.5*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.5*ac_ee_p[i];
             ac_ee_rpy_filtered[i] = 0.5*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.5*ac_ee_rpy[i];
+            // ac_ee_p_filtered[i] = 0.5*(rel_ee_pos[i] - rel_target_ee_p[i]) + 0.5*ac_ee_p_filtered[i];
+            // ac_ee_rpy_filtered[i] = 0.5*(hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i])) + 0.5*ac_ee_rpy_filtered[i];
             // ac_ee_p_filtered[i] = rel_ee_pos[i] - rel_target_ee_p[i];
             // ac_ee_rpy_filtered[i] = hrp::rpyFromRot(rel_ee_rot[i]) - hrp::rpyFromRot(rel_target_ee_R[i]);
             d_ac_ee_p[i] = adaptive_contact_parameters[i].k_gain*(ac_ee_p_filtered[i]) + adaptive_contact_parameters[i].d_gain*(ac_ee_p_filtered[i] - prev_ac_ee_p_filtered[i]);
@@ -2144,6 +2148,7 @@ void Stabilizer::sync_2_st ()
   balance_acc_mode[0] = false;
   balance_acc_mode[1] = false;
   flywheel_balance_moment = hrp::Vector3::Zero();
+  balance_acc_moment = Eigen::Vector2d::Zero();
   d_rpy_vel = hrp::Vector3::Zero();
   balance_acc_pos[0] = 0;
   balance_acc_pos[1] = 0;
